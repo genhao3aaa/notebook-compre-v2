@@ -72,6 +72,44 @@ hiddenimports = [
     'PySide6.QtSvg',
 ]
 
+# ---- Rust 核心：hn_core（maturin 的 abi3 扩展，EPISODE2.md §6 的打包待办）----
+# 为什么必须显式处理
+# ------------------
+# 1. `src/render/backend.py` 里的 `import hn_core` 写在函数内部，还被 try/except 包着
+#    （「扩展缺失就自动降级」是设计目标），静态分析完全可能判定它不可达；
+# 2. 一旦漏收，exe 不会报错——它只会**静默退回 Python 后端**：功能都在，但 5x~60x
+#    的加速没了，打包验收和用户都看不出来。
+# 所以这里两手都做：
+#   - hiddenimports 里点名 `hn_core`（包 __init__）与 `hn_core.hn_core`（abi3 .pyd）；
+#   - binaries 里显式给出 .pyd 的落地位置 `_internal/hn_core/hn_core.pyd`；
+# 并在 Analysis 之后断言它真的进了 TOC（见 a.binaries 过滤之后）。
+# 注：`collect_dynamic_libs()` 默认只匹配 *.dll / *.dylib / lib*.so，**不收 .pyd**，
+#     在这个包上不好用；直接列 .pyd 更简单可控。
+def _find_hn_core_pyd():
+    try:
+        import importlib.util
+        spec = importlib.util.find_spec('hn_core')
+        if spec and spec.origin:
+            pkg_dir = os.path.dirname(os.path.abspath(spec.origin))
+            pyd = os.path.join(pkg_dir, 'hn_core.pyd')
+            if os.path.isfile(pyd):
+                return pyd
+            print('WARN: hn_core 包在但没有 hn_core.pyd：%s' % pkg_dir, file=_sys.stderr)
+    except Exception as exc:      # pragma: no cover - 只在构建环境异常时走
+        print('WARN: 探测 hn_core 失败：%r' % (exc,), file=_sys.stderr)
+    return None
+
+
+HN_CORE_PYD = _find_hn_core_pyd()
+if HN_CORE_PYD:
+    hiddenimports += ['hn_core', 'hn_core.hn_core']
+    binaries = [(HN_CORE_PYD, 'hn_core')]
+    print('HN_CORE  =', HN_CORE_PYD, file=_sys.stderr)
+else:
+    binaries = []
+    print('WARN: 找不到已安装的 hn_core（先 `python build_rust.py`）：'
+          '成品将只有 Python 后端', file=_sys.stderr)
+
 # A5：明确排除用不到的 Qt 模块（少一个模块就少一批 DLL/插件被拖进来）
 excludes = [
     'PySide6.QtQml', 'PySide6.QtQuick', 'PySide6.QtQuick3D', 'PySide6.QtQuickWidgets',
@@ -120,7 +158,7 @@ def _keep_native(dest: str) -> bool:
 a = Analysis(
     [os.path.join(ROOT, 'main.py')],
     pathex=[ROOT],
-    binaries=[],
+    binaries=binaries,        # 见上面的 hn_core 块（Rust 扩展显式落位）
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
@@ -134,6 +172,16 @@ a = Analysis(
 # 分析完成后再按名字过滤原生件（此时 a.binaries / a.datas 才有内容）
 a.binaries = [b for b in a.binaries if _keep_native(b[0])]
 a.datas = [d for d in a.datas if _keep_native(d[0])]
+
+# 断言 Rust 核心真的进了包：宁可构建失败，也不要出一个静默降级的「假成品」。
+if HN_CORE_PYD:
+    _want = os.path.normpath(os.path.join('hn_core', 'hn_core.pyd'))
+    _have = {os.path.normcase(os.path.normpath(b[0])) for b in a.binaries}
+    if os.path.normcase(_want) in _have:
+        print('CHECK    : hn_core.pyd 已收进 %s' % _want, file=_sys.stderr)
+    else:
+        print('WARN: hn_core.pyd 没进 TOC，手动补收', file=_sys.stderr)
+        a.binaries.append((_want, HN_CORE_PYD, 'EXTENSION'))
 
 pyz = PYZ(a.pure, a.zipped_data)
 

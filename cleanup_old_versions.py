@@ -28,8 +28,8 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 KEEP = {"dist", "build"}
 #: 只清理这些前缀的历史目录
 PREFIXES = ("dist_", "build_")
-#: 项目外的历史产物（存在才处理）
-EXTRA = [r"D:\work zone\_old_exe_trash"]
+#: 项目外的历史产物（可选；用环境变量 HN_OLD_EXE_TRASH 指定，默认不处理）
+EXTRA = [p for p in (os.environ.get("HN_OLD_EXE_TRASH"),) if p]
 
 LOG = os.path.join(BASE, "_cleanup_log.txt")
 

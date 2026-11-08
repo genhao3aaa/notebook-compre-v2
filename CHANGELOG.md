@@ -1,6 +1,52 @@
 # 变更日志（版本演进历史）
 
 > 本文件原为 README 的「版本演进」章节，开源时为保持 README 精简而移出。
+>
+> 说明：下面历史章节里的 `v5.x` 是开发期的**界面迭代里程碑标签**，与安装包版本号
+> （如 5.3.0.0）不是同一套编号；exe / 安装包的版本号以 `assets/version_info.txt` 为准。
+
+---
+
+## v5.3.0：Episode2 首次独立仓库发布 + 独立安装包（2026-11）
+
+**发布与分发**
+
+- **项目迁移到新仓库** [genhao3aaa/notebook-compre-v2](https://github.com/genhao3aaa/notebook-compre-v2)：
+  Episode2 全量代码首次以独立仓库发布；原仓库 `genhao3aaa/notebook-compre` 保留为
+  Episode1 旧版，不再更新，旧 clone 地址请改用新仓库。
+- **首个独立安装包** `HandwritingNotebook-5.3.0-Setup.exe`：Inno Setup 6 制作，
+  `PrivilegesRequired=lowest` **按用户安装**（无需管理员）。安装位置**优先 D 盘**：
+  `D:\Apps\HandwritingNotebook`；机器没有 D 盘（或 D 盘不可写）时回退到
+  `%LOCALAPPDATA%\Programs\HandwritingNotebook`（安装目录可在向导里修改，升级沿用）。
+  快捷方式与卸载信息按 Windows 规范留在用户配置目录，程序本体（exe / `_internal`）在安装目录（默认 D 盘）。
+  安装后创建桌面与开始菜单快捷方式，在「设置 → 应用」里注册卸载项，
+  支持静默安装 / 静默卸载。**安装版无需 Python、无需 Rust 工具链**。
+- 新增 `build_release.ps1` 一键发布构建：版本一致性检查 → PyInstaller 打包 →
+  成品 `--selftest` 两轮（默认后端 + 强制 Rust 后端）→ Inno Setup 生成安装包 →
+  校验 exe / Setup 的版本资源 → 打印产物路径 / 大小 / SHA256，并在 `dist_release\` 生成 `SHA256SUMS`。
+- 新增 `installer/HandwritingNotebook.iss`（安装包定义）与 `.github/workflows/release.yml`
+  （推送 `v*` tag 时在 windows-latest 上自动构建并创建 GitHub Release）。
+- 新增 [RELEASING.md](RELEASING.md)（发布检查清单）、`.gitattributes`（换行 / 二进制归一）；
+  README 增加「下载安装（普通用户）」，并重写「打包」章节为真实的 Inno Setup 构建流程。
+
+**应用身份**
+
+- `main.py` 启动时设置进程 **AppUserModelID**（`SetCurrentProcessExplicitAppUserModelID`），
+  任务栏 / 开始菜单把程序识别为「手写笔记本与PDF批注」而不是 python；exe 图标、窗口标题、
+  快捷方式图标保持一致。
+
+**Rust 核心**
+
+- `build.spec` 收集编译好的 `hn_core`（abi3 `.pyd`），**安装包已内置 Rust 加速核心**，
+  安装后默认即走 Rust 后端；扩展缺失 / ABI 不匹配时仍自动降级到纯 Python 实现。
+- 源码运行方式保持不变：需要 Rust 加速时自行 `python build_rust.py`。
+
+**文档与工程**
+
+- README 的 clone 地址、项目结构、系统要求、已知限制同步到独立仓库 / 安装版。
+- [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 补充 PyInstaller、Inno Setup、maturin 等
+  构建工具，并明确安装包分发下的 AGPL-3.0 义务。
+- 历史版本号不再出现在面向用户的安装说明里（含源码快捷方式 pythonw 启动的旧描述）。
 
 ---
 
@@ -348,7 +394,7 @@ WriteError: 创建临时文件失败：保存位置（文件夹）不允许写�
 这次失败的是**兜底位置**（第一轮引入的 `%LOCALAPPDATA%\手写笔记本与PDF批注\annotations\`），不是 PDF 旁边 ——
 也就是说「PDF 旁边写不了就退到兜底目录」这条后路本身被堵死了。
 
-**根因**（本机实测）：进程处在上层文件沙箱 / 受限 ACL 下时，PDF 所在目录与上面这个兜底目录**同时**不可写：
+**根因**（实测）：进程处在受限文件权限 / 安全策略下时，PDF 所在目录与上面这个兜底目录**同时**不可写：
 对兜底目录做 `os.open(..., O_CREAT|O_EXCL)` 得到 `PermissionError [Errno 13] winerror=None`，
 而目录 ACL 看上去仍是全权限 —— 拒绝发生在 ACL 之外（沙箱层），所以「清只读属性 / 改 ACL」都救不了；
 同一进程下实测工作区目录与 `%TEMP%` 可写。
@@ -411,7 +457,7 @@ python diagnose_save_permission.py "D:\我的论文" --json # 机器可读（退
   INI 跨实例往返（`test_settings_ini_round_trip_across_instances`）、INI 后端下「重开回到上次那一页」端到端
   （`test_page_restore_under_ini_backend`）。
 
-> 排查「为什么阅读位置有时记不住」：受限沙箱（DSH 等）里注册表与 `%LOCALAPPDATA%` **都可能写不进去**，
+> 排查「为什么阅读位置有时记不住」：受限环境（企业策略管控 / 沙箱）里注册表与 `%LOCALAPPDATA%` **都可能写不进去**，
 > 跑一次 `python diagnose_save_permission.py` 就能看到程序实际把设置 / 批注写到哪儿
 > （先打印设置后端 + 批注兜底候选链，判定以脚本实际输出为准）。
 

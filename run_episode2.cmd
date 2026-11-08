@@ -13,7 +13,7 @@ rem                                -> same, but write the .lnk into that folder
 rem                                   (default: the user Desktop)
 rem
 rem  Entry  : <this folder>\main.py
-rem  Python : ..\handwriting-notebook\.venv\Scripts\python(w).exe  (shared venv)
+rem  Python : <repo>\.venv\Scripts\python(w).exe (recommended), or python(w).exe on PATH
 rem
 rem  NOTE: this file is intentionally ASCII-only. cmd.exe reads .cmd files with
 rem  the OEM code page, so non-ASCII text in here would show up as garbage. The
@@ -29,18 +29,15 @@ if "%APPDIR:~-1%"=="\" set "APPDIR=%APPDIR:~0,-1%"
 rem -- sub-command: create / update the desktop shortcut.
 if /I "%~1"=="shortcut" goto :shortcut
 
-set "VENV=%APPDIR%\..\handwriting-notebook\.venv\Scripts"
-
 if not exist "%APPDIR%\main.py" goto :no_main
 
-rem -- interpreter: episode2 local venv first (if one ever appears), else the
-rem    shared episode-1 venv.
+rem -- interpreter: repository .venv first, then python(w) from PATH.
 set "PY="
 set "PYW="
 if exist "%APPDIR%\.venv\Scripts\python.exe"  set "PY=%APPDIR%\.venv\Scripts\python.exe"
 if exist "%APPDIR%\.venv\Scripts\pythonw.exe" set "PYW=%APPDIR%\.venv\Scripts\pythonw.exe"
-if not defined PY  if exist "%VENV%\python.exe"  set "PY=%VENV%\python.exe"
-if not defined PYW if exist "%VENV%\pythonw.exe" set "PYW=%VENV%\pythonw.exe"
+if not defined PY  for /f "delims=" %%i in ('where python.exe 2^>nul') do if not defined PY  set "PY=%%i"
+if not defined PYW for /f "delims=" %%i in ('where pythonw.exe 2^>nul') do if not defined PYW set "PYW=%%i"
 if not defined PY goto :no_python
 
 rem -- default: windowless. "console" argument keeps the console for debugging.
@@ -111,8 +108,10 @@ exit /b 1
 :no_python
 echo [Episode2] Python interpreter not found. Looked for:
 echo            "%APPDIR%\.venv\Scripts\python.exe"
-echo            "%VENV%\python.exe"
-echo [Episode2] Expected the shared venv of episode 1 (handwriting-notebook\.venv).
+echo            python.exe on PATH
+echo [Episode2] Create the repo venv first:
+echo            python -m venv .venv
+echo            .venv\Scripts\pip install -r requirements.txt
 pause
 exit /b 1
 

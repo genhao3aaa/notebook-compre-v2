@@ -11,17 +11,22 @@
 > A Windows desktop app for handwriting notes and PDF annotation, built with PySide6 + PyMuPDF,
 > with an optional Rust rendering core.
 
+> **只想使用？** 到 [GitHub Releases](https://github.com/genhao3aaa/notebook-compre-v2/releases)
+> 下载 `HandwritingNotebook-5.3.0-Setup.exe` 安装即可（Windows 10 / 11 x64，**无需 Python**）。
+> **想开发 / 二次开发？** 见下方[从源码安装](#从源码安装)。
+
 ---
 
 ## 目录
 
 - [功能特性](#功能特性)
 - [系统要求](#系统要求)
-- [安装](#安装)
+- [下载安装（普通用户）](#下载安装普通用户)
+- [从源码安装](#从源码安装)
 - [运行](#运行)
 - [使用说明](#使用说明)
 - [Rust 加速核心（可选）](#rust-加速核心可选)
-- [打包为可执行文件](#打包为可执行文件)
+- [打包与发布](#打包与发布)
 - [测试](#测试)
 - [项目结构](#项目结构)
 - [设计原则](#设计原则)
@@ -136,21 +141,92 @@
 
 | 项目 | 要求 |
 |---|---|
-| 操作系统 | **Windows 10 / 11**（依赖 Qt 触控笔事件与 Windows 反馈 API，暂不支持其他平台） |
-| Python | **3.10+**（开发与 CI 使用 3.12） |
-| Rust | 可选，仅构建加速核心时需要 |
+| 操作系统 | **Windows 10 / 11（x64）**（依赖 Qt 触控笔事件与 Windows 反馈 API，暂不支持其他平台） |
+| 安装版 | **无需 Python、无需 Rust 工具链** —— 安装包自带运行时与 Rust 核心 |
+| 源码运行 | Python **3.10+**（开发与 CI 使用 3.12） |
+| Rust | 可选，仅从源码构建加速核心时需要 |
 
 ---
 
-## 安装
+## 下载安装（普通用户）
+
+不需要装 Python、不需要命令行，从 **GitHub Releases** 下载安装包即可：
+
+1. 打开 <https://github.com/genhao3aaa/notebook-compre-v2/releases>，下载最新版本的
+   **`HandwritingNotebook-5.3.0-Setup.exe`**。
+2. （建议）核对下载完整性：Release 里的 `SHA256SUMS` 附有各资产的 SHA256。
+
+   ```powershell
+   Get-FileHash .\HandwritingNotebook-5.3.0-Setup.exe -Algorithm SHA256
+   ```
+
+3. 双击安装（**简体中文向导**，英文系统自动回退英文）。安装包**按用户安装**
+   （`PrivilegesRequired=lowest`），**不需要管理员权限**。安装位置默认优先放在
+   **D 盘**（不占用系统盘）：
+
+   ```
+   D:\Apps\HandwritingNotebook
+   ```
+
+   机器**没有 D 盘**（或 D 盘不可写）时自动回退到：
+
+   ```
+   %LOCALAPPDATA%\Programs\HandwritingNotebook
+   ```
+
+   也可以在安装向导里点「浏览…」改到其它目录；升级时沿用上次的安装目录。
+
+   安装时可勾选「注册 `.note` 笔记文件的打开方式」（只会出现在右键「打开方式」里，
+   **不会抢占** `.note` 的默认程序）。
+
+4. 安装完成后会创建：
+
+   - 桌面快捷方式「**手写笔记本与PDF批注**」；
+   - 开始菜单文件夹「手写笔记本与PDF批注」+ 程序 / 卸载快捷方式；
+   - 「设置 → 应用」里的卸载项（显示为「手写笔记本与PDF批注 5.3.0」）。
+
+5. 双击桌面快捷方式启动。也可以把 `.note` / `.pdf` / `.md` 拖到快捷方式上，
+   或右键「打开方式 → 选择其他应用」指向安装目录里的 `手写笔记本与PDF批注.exe`。
+
+**安装版说明**
+
+- 安装版是**真正的 Windows 应用**：内置 Python 运行时、Qt / PyMuPDF 依赖与
+  **Rust 加速核心 `hn_core`**；启动不弹控制台，任务栏显示应用名与图标（不是 python）。
+- **体积**：安装包约 45 MB，安装后约占 146 MB 磁盘（主要是 `_internal` 运行时）。
+- **安装位置**：默认 `D:\Apps\HandwritingNotebook`（没有 D 盘或 D 盘不可写时
+  `%LOCALAPPDATA%\Programs\HandwritingNotebook`）；安装目录可在向导里修改，升级时沿用上次的目录。
+  桌面 / 开始菜单快捷方式与卸载信息按 Windows 规范写在用户配置目录（C 盘），
+  真正占空间的程序本体（exe 与 `_internal`）都在安装目录里（默认 D 盘）。
+- **升级**：下载新版本安装包覆盖安装即可，笔记 / 批注 / 偏好设置不受影响。
+- **卸载**：「设置 → 应用 → 已安装的应用」→「手写笔记本与PDF批注」→ 卸载；
+  或开始菜单里的「卸载 手写笔记本与PDF批注」。也可直接运行安装目录下的 `unins000.exe`
+  （默认例如 `D:\Apps\HandwritingNotebook\unins000.exe`）；
+  静默卸载：`unins000.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART`。
+  卸载不会删除你的笔记 / 批注文件与偏好设置。
+- 安装包与 exe **未做代码签名**，首次运行时可能出现 Windows SmartScreen 的
+  「未知发布者」提示：点「更多信息」→「仍要运行」即可（详见下文
+  [关于 SmartScreen](#关于-smartscreen未知发布者提示)）。
+- 数据位置：批注默认写在 PDF 旁边（同名 `.annot`），写不进去时退到
+  `%LOCALAPPDATA%\手写笔记本与PDF批注\annotations\`；偏好设置默认写注册表
+  `HKCU\Software\WorkBuddy\HandwritingNotebook`，写不进去时自动改用 INI 文件。
+
+---
+
+## 从源码安装
+
+> 只想使用程序的话，「下载安装」更省事；以下是开发 / 二次开发用的源码流程。
 
 ```bash
-git clone https://github.com/genhao3aaa/notebook-compre.git
-cd notebook-compre
+git clone https://github.com/genhao3aaa/notebook-compre-v2.git
+cd notebook-compre-v2
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 ```
+
+> 旧仓库 [`genhao3aaa/notebook-compre`](https://github.com/genhao3aaa/notebook-compre)
+> 保留为 Episode1 历史版本，不再更新；新代码与安装包都以本仓库
+> （`notebook-compre-v2`）为准。
 
 `requirements.txt`：
 
@@ -170,6 +246,8 @@ numpy>=1.26
 
 ## 运行
 
+> **安装版**：双击桌面 / 开始菜单快捷方式即可，不需要命令行。下面是从源码运行的方式。
+
 ```bash
 python main.py
 ```
@@ -185,13 +263,14 @@ python main.py "D:\书\book.pdf" "D:\笔记\笔记.note"   # 多个文件开成�
 - 把 PDF / `.note` 拖到 exe 图标上，或用资源管理器「打开方式」选择本程序，效果相同；
 - PDF 会恢复到**上次读到的那一页**；无效路径与未知类型会被**忽略**（不弹错、不开空标签）。
 
-**Windows 启动器**（可选）：仓库自带的 `run_episode2.cmd` 提供三种用法。
+**Windows 启动器（源码可选）**：仓库自带的 `run_episode2.cmd` 提供三种用法，
+只用于源码运行，安装版不需要它。
 
 | 命令 | 作用 |
 |---|---|
-| 双击 `run_episode2.cmd` | 用 `pythonw.exe` 无控制台启动 |
+| 双击 `run_episode2.cmd` | 用 `pythonw.exe` 无控制台启动源码版 |
 | `run_episode2.cmd console` | 带控制台启动，能看到 traceback（排查启动失败用） |
-| `run_episode2.cmd shortcut` | 在桌面创建 / 更新 `Episode2.lnk`，会回读字段并暂停 |
+| `run_episode2.cmd shortcut` | 在桌面创建 / 更新源码快捷方式 `Episode2.lnk`，会回读字段并暂停 |
 
 > 启动器优先使用仓库根目录的 `.venv`，因此按上文装好虚拟环境后即可直接使用。
 
@@ -237,6 +316,9 @@ PDF 批注文件默认写入原 PDF 同级目录，文件名相同、后缀为 `
 - **Python 参考实现**（默认，无需任何额外工具链）；
 - **Rust 实现**（`rust/hn_core`，基于 tiny-skia + rstar + PyO3，走 numpy 缓冲零拷贝传参）。
 
+> **安装包已内置 Rust 核心**：装好即用，普通用户不需要编译。下面的构建步骤只针对
+> **从源码运行**且希望启用加速的场景。
+
 两者可逐点 / 逐像素对拍。**扩展缺失或 ABI 不匹配时会自动降级到 Python 实现**并写入日志，
 程序不会因为性能优化而不可用。
 
@@ -265,58 +347,125 @@ set HN_RENDER_BACKEND=auto     # 默认：能用 Rust 就用
 
 ---
 
-## 打包为可执行文件
+## 打包与发布
+
+仓库提供两条打包路径：
+
+| 产物 | 命令 | 说明 |
+|---|---|---|
+| 源码版 exe（onedir 文件夹） | `pyinstaller build.spec` | 从源码直接打包，适合本地调试 |
+| Windows 安装包（发布用） | `powershell -ExecutionPolicy Bypass -File build_release.ps1` | PyInstaller + Inno Setup，输出 Setup exe 与 SHA256 |
+
+### 1. 源码版 exe（PyInstaller）
 
 `build.spec` 采用 **onedir（文件夹）模式**，并做 **白名单式裁剪**：不收集 PySide6 的
 qml / translations / metatypes / `.pyi`，按名字丢掉用不到的原生件（WebEngine、QtQml/Quick、QtPdf 等）。
 
-1. 安装打包工具：
+```bash
+pip install pyinstaller
+pyinstaller build.spec
+```
 
-   ```bash
-   pip install pyinstaller
-   ```
+生成的程序在：
 
-2. 在项目根目录执行：
+```
+dist\手写笔记本与PDF批注\手写笔记本与PDF批注.exe
+```
 
-   ```bash
-   pyinstaller build.spec
-   ```
+直接双击即可运行（目标机器无需安装 Python）。整个 `dist\手写笔记本与PDF批注\` 文件夹需一起分发。
 
-   生成的程序在：
+> 想让源码版也走 Rust 加速：先 `python build_rust.py` 编译 `hn_core`，再 `pyinstaller build.spec`。
+> 发布用的安装包由 `build_release.ps1` 自动带上 Rust 核心。
 
-   ```
-   dist\手写笔记本与PDF批注\手写笔记本与PDF批注.exe
-   ```
+**打包后必须跑一次自检**（裁剪最容易伤到平台插件与运行时才加载的 PyMuPDF / PIL）：
 
-   直接双击即可运行（目标机器无需安装 Python）。整个 `dist\手写笔记本与PDF批注\` 文件夹需一起分发。
+```bash
+dist\手写笔记本与PDF批注\手写笔记本与PDF批注.exe --selftest %TEMP%\hn-check
+```
 
-3. **打包后必须跑一次自检**（裁剪最容易伤到平台插件与运行时才加载的 PyMuPDF / PIL）：
+自检会离屏跑完「创建 PDF → 打开 PDF → 读目录 → 渲染 → 手写 → 保存批注(v2) → 导出 PDF
+→ 新建笔记 → 保存并读回」，成功打印 `SELFTEST OK`，失败返回非 0。
+源码环境用 `python main.py --selftest %TEMP%\hn-check` 等价。
 
-   ```bash
-   dist\手写笔记本与PDF批注\手写笔记本与PDF批注.exe --selftest %TEMP%\hn-check
-   ```
+想要**单个 exe 文件**（体积更大、启动稍慢）可改用：
 
-   自检会离屏跑完「创建 PDF → 打开 PDF → 读目录 → 渲染 → 手写 → 保存批注(v2) → 导出 PDF
-   → 新建笔记 → 保存并读回」，成功打印 `SELFTEST OK`，失败返回非 0。
-   源码环境用 `python main.py --selftest %TEMP%\hn-check` 等价。
+```bash
+pyinstaller -F -w --name "手写笔记本与PDF批注" ^
+  --hidden-import pymupdf --hidden-import PIL main.py
+```
 
-4. 想要**单个 exe 文件**（体积更大、启动稍慢）可改用：
+（`-F` 不会应用 `build.spec` 里的白名单裁剪，体积会回到数百 MB。）
 
-   ```bash
-   pyinstaller -F -w --name "手写笔记本与PDF批注" ^
-     --hidden-import pymupdf --hidden-import PIL main.py
-   ```
+### 2. Windows 安装包（发布用）
 
-   （`-F` 不会应用 `build.spec` 里的白名单裁剪，体积会回到数百 MB。）
+发布流程由仓库根目录的 `build_release.ps1` 一键完成，安装包定义在
+`installer\HandwritingNotebook.iss`（[Inno Setup](https://jrsoftware.org/isinfo.php) 6）。
+
+**准备工具：**
+
+```powershell
+pip install pyinstaller maturin
+winget install JRSoftware.InnoSetup      # 或从 https://jrsoftware.org/isdl.php 下载安装
+
+# 发布构建会检查 Rust 核心是否已打进 dist，必须先编译：
+winget install Rustlang.Rustup
+python build_rust.py
+```
+
+Inno Setup 默认安装在 `C:\Program Files (x86)\Inno Setup 6`；装在别处时用
+`-Iscc <ISCC.exe 路径>` 参数（或 `HN_ISCC` 环境变量）指定，脚本也会自动搜索常见位置。
+
+**执行发布构建：**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build_release.ps1
+# 也可显式指定工具路径 / 版本：
+#   -Iscc "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+#   -Python .venv\Scripts\python.exe
+#   -Version 5.3.0
+```
+
+脚本依次完成：
+
+1. **版本号一致性检查** —— `assets\version_info.txt` ↔ `installer\HandwritingNotebook.iss` ↔ 目标版本；
+2. `pyinstaller build.spec --clean --noconfirm`（onedir 白名单裁剪，收集 Rust 核心 `hn_core`）；
+3. **成品自检两轮**：默认后端 + 强制 `HN_RENDER_BACKEND=rust`，都必须是 `SELFTEST OK`，
+   且 Rust 轮次自检输出「渲染后端：rust」；同时校验 exe 的版本资源为 `5.3.0.0`；
+4. 用 Inno Setup 的 `ISCC.exe`（`/DMyAppVersion=<版本>`）编译
+   `installer\HandwritingNotebook.iss`，并校验安装包的版本资源；
+5. 打印全部产物路径、文件大小与 SHA256，并把安装包的 SHA256 写入
+   `dist_release\SHA256SUMS`（发布时随 Release 一起上传）。
+
+**产物：**
+
+```
+dist_release\HandwritingNotebook-5.3.0-Setup.exe
+dist_release\SHA256SUMS
+```
+
+> `SHA256SUMS` 由脚本自动生成（`.github/workflows/release.yml` 也会生成/覆盖并随 Release 上传）；
+> 安装目录默认 D 盘优先，见下文说明。
+
+安装包**按用户安装**：默认优先 `D:\Apps\HandwritingNotebook`，机器没有 D 盘（或 D 盘不可写）时
+回退到 `%LOCALAPPDATA%\Programs\HandwritingNotebook`（安装目录可在向导里修改，升级时沿用）；
+**简体中文向导**（英文系统回退英文），创建桌面 / 开始菜单快捷方式，可选注册 `.note` 文件的
+打开方式（不抢默认程序），并在「设置 → 应用」注册卸载项。安装版**无需 Python**，
+且**已内置 Rust 核心**（扩展缺失时仍自动降级到纯 Python 实现）。
+
+**版本号**：exe / 安装包版本以 `assets\version_info.txt` 为准（v5.3.0 → `5.3.0.0`），
+需与 `installer\HandwritingNotebook.iss` 和 git tag（`v5.3.0`）保持一致。完整的发布检查清单见
+[RELEASING.md](RELEASING.md)；推送 `v*` tag 后 `.github\workflows\release.yml` 会在
+windows-latest 上自动构建并创建 GitHub Release。
 
 ### 关于 SmartScreen「未知发布者」提示
 
-未签名的 exe 在别的机器上首次运行会触发 Windows SmartScreen 的声誉检查——**这不是杀毒告警**。
+安装包与 exe **未做代码签名**，在别的机器上首次运行会触发 Windows SmartScreen 的声誉检查
+——**这不是杀毒告警**。
 
 - 在提示里点「**更多信息**」→「**仍要运行**」即可；
 - **不要**为了它关闭 SmartScreen / Defender 全局防护；
-- 如果 exe 是从别处拷来的（U 盘、聊天工具、压缩包），先解除下载标记：
-  `Unblock-File 'dist\手写笔记本与PDF批注\手写笔记本与PDF批注.exe'`。
+- 如果安装包是从别处拷来的（U 盘、聊天工具、压缩包），先解除下载标记：
+  `Unblock-File .\HandwritingNotebook-5.3.0-Setup.exe`。
 
 根治需要代码签名证书（本仓库提供 `sign_dist.py`）：
 
@@ -357,29 +506,43 @@ python main.py --selftest %TEMP%\hn-check
 CI 配置在 `.github/workflows/ci.yml`（windows-latest）：`ruff` → `pyright` → `pytest` →
 基准 JSON 存档 → 源码自检；第二个 job 负责打包 + 成品自检 + 体积预算。
 
+发布流水线在 `.github/workflows/release.yml`：推送 `v*` tag 时自动编译 Rust 核心、打包、
+生成 Inno Setup 安装包并创建 GitHub Release，详见 [RELEASING.md](RELEASING.md)。
+
 ---
 
 ## 项目结构
 
 ```
-notebook-compre/
-├── main.py                    # 程序入口（高 DPI 设置 + 启动主窗口 + 命令行/拖放打开文件）
+notebook-compre-v2/
+├── main.py                    # 程序入口（高 DPI + AppUserModelID + 启动主窗口 + 命令行/拖放打开文件）
 ├── requirements.txt           # 运行依赖清单
-├── run_episode2.cmd           # Windows 启动器（无控制台启动 / 建桌面快捷方式）
-├── build.spec                 # PyInstaller 打包脚本（onedir + 白名单裁剪）
+├── run_episode2.cmd           # 源码启动器（无控制台启动 / 建源码快捷方式；安装版不需要）
+├── build.spec                 # PyInstaller 打包脚本（onedir + 白名单裁剪，收集 hn_core）
+├── build_release.ps1          # 发布构建：版本检查 → PyInstaller → 两轮自检 → Inno Setup → SHA256SUMS
 ├── build_rust.py              # 一键编译并安装 Rust 核心
 ├── sign_dist.py               # 代码签名（消除 SmartScreen「未知发布者」）
 ├── env_compat.py              # 运行环境兼容层
 ├── conftest.py                # pytest 配置（sys.path + 环境兼容）
 ├── pyproject.toml             # 工具链配置（pytest / ruff）
 ├── pyrightconfig.json         # 类型检查配置
+├── .gitattributes             # 换行 / 二进制归一
 ├── LICENSE                    # AGPL-3.0
 ├── CONTRIBUTING.md
+├── RELEASING.md               # 发布检查清单（版本号 / tag / GitHub Release 资产）
 ├── THIRD_PARTY_NOTICES.md
 ├── README.md
 ├── CHANGELOG.md               # 版本演进历史
 ├── EPISODE2.md                # Rust 核心设计与对拍数据
 ├── ROADMAP.md / ROADMAP_REVIEW.md
+├── .github/
+│   └── workflows/
+│       ├── ci.yml             # 静态检查 + 测试 + 打包冒烟
+│       └── release.yml        # tag v* → 构建安装包 → GitHub Release
+├── installer/
+│   ├── HandwritingNotebook.iss  # Inno Setup 安装包定义（按用户安装 / 快捷方式 / 卸载）
+│   └── ChineseSimplified.isl    # Inno Setup 6 简体中文向导语言文件
+├── dist_release/              # 发布产物（安装包 + SHA256SUMS，git 忽略）
 ├── assets/
 │   ├── app.ico                # 应用图标
 │   └── version_info.txt       # exe 版本资源
@@ -480,6 +643,16 @@ notebook-compre/
 - `v2` 二进制文件**旧版本程序读不了**（magic 不匹配会明确报错而非画花）；需要与旧版本交换文件时
   用 `save(path, version=1)` 写回 JSON。
 
+**安装版相关**
+
+- 仅支持 **Windows 10 / 11 x64**；没有 macOS / Linux 版本。
+- 安装包与 exe **未做代码签名**，首次运行可能触发 SmartScreen「未知发布者」提示
+  （见「关于 SmartScreen」，自签名证书不能消除该提示）。
+- **不内置自动更新**：升级需手动下载新版本安装包覆盖安装。
+- 安装包已内置 Rust 核心；从源码运行且未编译 `hn_core` 时会自动降级为纯 Python 实现
+  （功能一致、性能较低）。
+- 性能数据为特定测试机实测，CPU / 屏幕 DPI / PDF 复杂度不同会有差异。
+
 ---
 
 ## 性能
@@ -504,7 +677,8 @@ Rust 核心的对拍与基准数据见 [EPISODE2.md](EPISODE2.md) 与 `bench_bac
 
 ## 贡献
 
-欢迎提交 Issue 与 Pull Request。开发环境、构建步骤与提交规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+欢迎提交 Issue 与 Pull Request。开发环境、构建步骤与提交规范见 [CONTRIBUTING.md](CONTRIBUTING.md)；
+打 tag 与发布安装包的流程见 [RELEASING.md](RELEASING.md)。
 
 提交前请确保：
 
@@ -522,5 +696,8 @@ pytest -q
 
 因依赖 PyMuPDF（AGPL-3.0），本项目的**任何分发与网络服务**均须遵守 AGPL-3.0 的开源义务：
 若你将本项目（或其修改版）作为网络服务对外提供，也必须向使用者开放完整源码。
+
+分发安装包（`HandwritingNotebook-*-Setup.exe`）或打包后的 exe 时，须同时向接收者提供
+**对应版本的完整源代码**——本仓库即源码，发布安装包时应与同版本的源码 tag 一起发布。
 
 第三方组件许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

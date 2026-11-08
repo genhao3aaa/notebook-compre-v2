@@ -1,9 +1,13 @@
 # Episode2 v1：Python/Qt 外壳 + Rust 核心（ROADMAP 路线 B）
 
-> 本目录是**Episode2**：Episode1（`handwriting-notebook/`）已冻结并备份为
-> `episode1-backup-2026-10-01/`，不再改动。桌面快捷方式**已指向 Episode2**：`手写笔记本与PDF批注.lnk`
-> （原名保留）用共享 venv 的 `pythonw.exe` 直接启动本目录源码版，另有 `Episode2.lnk` → `run_episode2.cmd`
-> （见文末「与 Episode1 的关系」）。
+> 本文件说明 **Episode2** 的 Rust 加速核心：后端契约、对拍口径与实测数据。
+>
+> Episode1 已冻结，只保留在旧仓库 [genhao3aaa/notebook-compre](https://github.com/genhao3aaa/notebook-compre)
+> 作为历史版本。当前版本 **v5.3.0** 以独立仓库
+> [genhao3aaa/notebook-compre-v2](https://github.com/genhao3aaa/notebook-compre-v2) 发布，首次提供独立安装包：
+> 安装版是真正的 Windows 应用（内置 Python 运行时与 Rust 核心），桌面 / 开始菜单快捷方式指向
+> 安装目录下的 `手写笔记本与PDF批注.exe`；源码启动脚本 `run_episode2.cmd` 只用于开发调试。
+> 详见文末「与 Episode1 的关系」。
 
 ## 1. 这一版做了什么（对照 ROADMAP §3）
 
@@ -13,7 +17,7 @@
 | **B3.1** 对拍框架 | `tests/benchmarks/bench_backend.py`（对拍 + 计时 + `--json`）、`tests/test_backend_parity.py`（CI 闸门） | ✅ 完成 |
 | **B3.2** Rust `rasterize` | `rust/hn_core`：tiny-skia 变宽轮廓一次填充（含单点/圆头/压感过渡） | ✅ 完成（QPainter 主路径接入留到下一版，见 §6） |
 | **B3.3** Rust `simplify` + `hit_test` | RDP（显式栈，无递归深度限制）+ `rstar` 包围盒 R 树 | ✅ 完成 |
-| **B3.4** 打包 | `build_rust.py` 一键出 abi3 轮子；PyInstaller 收 `.pyd` 留到下一版 | 🟡 轮子可用，打包待接 |
+| **B3.4** 打包 | `build_rust.py` 一键出 abi3 轮子；PyInstaller 收集 `.pyd` 并打进安装包 | ✅ 完成（v5.3.0） |
 | **B3.5** A/B 基准 | 见 §4（1k/5k 笔画实测） | ✅ 完成 |
 
 关键取舍（与 ROADMAP 一致）：
@@ -44,7 +48,7 @@ episode2/
 ## 3. 怎么用
 
 ```bash
-# 1) 工具链（本机实测：没有 MSVC，用 GNU 目标）
+# 1) 工具链（没有 MSVC 时可用 GNU 目标）
 winget install Rustlang.Rustup
 rustup default stable-x86_64-pc-windows-gnu      # 有 VS Build Tools 时可用默认的 msvc
 uv pip install maturin numpy
@@ -63,7 +67,7 @@ set HN_RENDER_BACKEND=python     # 强制参考实现
 set HN_RENDER_BACKEND=rust       # 强制 Rust（不可用时自动降级并记日志）
 ```
 
-## 4. 实测（本机：Windows / CPython 3.12.13 / rustc 1.98.1（GNU）/ tiny-skia 0.11.4）
+## 4. 实测（Windows / CPython 3.12 / rustc stable（GNU 目标）/ tiny-skia 0.11.4）
 
 对拍结论：**全部达标**（`bench_backend_result.json`）
 
@@ -96,7 +100,8 @@ set HN_RENDER_BACKEND=rust       # 强制 Rust（不可用时自动降级并记�
 1. **`rasterize` 接入 QPainter 主路径**：`canvas_render.py` 的整页重建改为
    「Rust 出 RGBA → `QImage` 直接贴」，替换掉现在的逐笔 `drawPath`；
    需要先解决「实时墨迹（`_draw_live_ink`）与重建结果一致」的口径问题（Episode1 A1 踩过）；
-2. **PyInstaller 收 `.pyd`**：`build.spec` 加 `hn_core` 与 abi3 轮子路径，成品自检验证扩展在位；
+2. ~~**PyInstaller 收 `.pyd`**~~：**已在 v5.3.0 完成**——`build.spec` 收集 `hn_core` abi3 轮子，
+   安装包内置 Rust 核心，成品 `--selftest` 验证扩展在位；
 3. **大页面基准**：在真实 A4 / dpr 1.5 页面上再跑一轮，确认 5k 笔画的整页重建进入 50 ms 级；
 4. `hit_test` 的精确判定也搬进 Rust（现在 R 树只做粗筛，精确几何仍在 Python）。
 
@@ -106,7 +111,7 @@ set HN_RENDER_BACKEND=rust       # 强制 Rust（不可用时自动降级并记�
   `HN_ANNOT_DIR` → `%LOCALAPPDATA%\手写笔记本与PDF批注\annotations\`（历史位置，
   文件名 `<12 位路径哈希>-<原 PDF 文件名>.annot`）→ `%APPDATA%` → `文档` → 系统临时目录；
   打开时按**同一顺序**找回批注，位置定下来后沿用、不在「旁边 / 兜底」之间来回跳。
-  为什么需要候选链：进程处在受限文件沙箱 / 受限 ACL 下时，PDF 旁边与 `%LOCALAPPDATA%` 兜底目录可能**同时**不可写
+  为什么需要候选链：在受限文件权限 / 安全策略（企业管控、AppContainer 等）下，PDF 旁边与 `%LOCALAPPDATA%` 兜底目录可能**同时**不可写
   （实测 `os.open(..., O_CREAT|O_EXCL)` 返回 `PermissionError [Errno 13] winerror=None`，而目录 ACL 看上去仍是全权限），
   此时保存只会弹出 `WriteError: 创建临时文件失败：保存位置（文件夹）不允许写入`。
   自查：`python diagnose_save_permission.py "<目录>"`（`--fix` 顺手修只读与残骸，`--json` 机器可读，退出码 0 / 1 / 2）；
@@ -125,7 +130,7 @@ set HN_RENDER_BACKEND=rust       # 强制 Rust（不可用时自动降级并记�
   （已经存在的 INI 优先复用，`HN_SETTINGS_INI=1` 可强制 INI；注册表不可用会在
   `%LOCALAPPDATA%\手写笔记本与PDF批注\registry-unavailable.flag` 留标记）；当前后端用 `AppSettings.storage()` 查看。
   回归测试 `tests/test_page_state.py`（注册表被禁 → INI、INI 跨实例往返、INI 后端下重开回到上次那一页）。
-* **冻结版验收（2026-10-01，独立 verifier）**：episode2 全量 **283 passed / 1 skipped**（含 `test_startup` / `test_selftest`）；
+* **冻结版验收（2026-10-01）**：episode2 全量 **283 passed / 1 skipped**（含 `test_startup` / `test_selftest`）；
   保存兜底链 **9/9**（PDF 旁边与 `%LOCALAPPDATA%` 都不可写 → 批注落到 `%TEMP%` 候选并**能读回**）；全目录不可写 **12/12**
   （不崩、错误文本含「所有备用位置都写不进去」+ 候选位置清单、旧 `.annot` 字节不变、无 `.tmp-` 残骸）；
   真实 656 页书 **14/14**（注册表不可写 → 自动 INI，关闭前 `page=222/656`、状态栏「页: 223 / 656」，重开后一致）；
@@ -135,23 +140,22 @@ set HN_RENDER_BACKEND=rust       # 强制 Rust（不可用时自动降级并记�
 
 ## 8. 与 Episode1 的关系
 
-* `handwriting-notebook/`：**冻结**（且已重建过 `dist/`，其中 exe 仍为 `5.2.2.0`，用户此前拿到的就是修好
-  「保存 PermissionError / 页码不更新」的那个版本；桌面主快捷方式已改指 Episode2，回退用备份快捷方式
-  `手写笔记本与PDF批注.Episode1备份.lnk`）；
-* `episode1-backup-2026-10-01/`：冻结快照（含 `.git`，不含 `.venv` / `build` / `dist`）；
-* `episode2/`：本目录，独立演进；**桌面主快捷方式已指向它** —— `手写笔记本与PDF批注.lnk`（原名保留）→
-  `handwriting-notebook\.venv\Scripts\pythonw.exe` + 参数 `main.py`、工作目录 `episode2`、图标 `episode2\assets\app.ico`；
-  双击实测启动本目录源码版并恢复会话（656 页书 + 原有标签，页码框 `/ 656`），关闭后 0 残留进程。
-  启动器 `episode2/run_episode2.cmd` 三种用法：
-  ① 双击 → `pythonw.exe` 无控制台启动（工作目录锁定 `episode2/`）；
-  ② `run_episode2.cmd console` → 带控制台启动，能看到 traceback；
-  ③ `run_episode2.cmd shortcut` → 创建 / 更新 `Episode2.lnk`（可跟一个输出目录参数，默认用户桌面）。
-  桌面另有 `Episode2.lnk` → `episode2/run_episode2.cmd`，保留 `console` / `shortcut` 子命令入口。
-  开发期写桌面曾被沙箱拒绝（`System.UnauthorizedAccessException HR=0x80070005`）；沙箱放开后已由 Lead 直接改指，
-  Episode1 的原快捷方式另存为 `手写笔记本与PDF批注.Episode1备份.lnk`
-  （→ `handwriting-notebook\dist\…exe`，`5.2.2.0`），需要时双击即可回退。
-* **打包成品（2026-10-01 验收）**：`assets/version_info.txt` 升到 **5.2.2.0**（两个 episode 同步；含义 =
-  保存位置兜底链 + 设置后端 INI 兜底 + 阅读位置回归）；重建的 `dist\手写笔记本与PDF批注\` 实测
-  **245 个文件 / 142.0 MB**，成品 `--selftest` → `SELFTEST OK`（5/5 步）；带 PDF 启动时工具栏页码框显示
-  `219 / 657`（与写入的阅读进度 `page=218` 一致）。CI 的体积预算已按本次实测上调为 **`< 150 MB`**
-  （实测 142.0 MB，不再是超线状态）。
+* **Episode1**：v5.2.2 及更早的历史版本，**已冻结**，代码保留在旧仓库
+  [genhao3aaa/notebook-compre](https://github.com/genhao3aaa/notebook-compre)，不再更新；
+  旧仓库的 clone 地址与安装说明均已过时，日常使用请用新仓库。
+* **Episode2（当前版本）**：自 **v5.3.0** 起以独立仓库
+  [genhao3aaa/notebook-compre-v2](https://github.com/genhao3aaa/notebook-compre-v2) 发布，
+  并首次提供**独立安装包**（`HandwritingNotebook-5.3.0-Setup.exe`）：
+  * 安装版按用户安装：默认优先 `D:\Apps\HandwritingNotebook`（不占系统盘），
+    没有 D 盘（或 D 盘不可写）时回退到 `%LOCALAPPDATA%\Programs\HandwritingNotebook`；
+    无需管理员权限，也**无需安装 Python**；
+  * 桌面 / 开始菜单快捷方式指向安装目录下的 `手写笔记本与PDF批注.exe`（不再是源码启动脚本），
+    exe 内置 Python 运行时与 Rust 核心 `hn_core`；
+  * 卸载走「设置 → 应用 → 手写笔记本与PDF批注」，或开始菜单里的卸载快捷方式。
+* **源码运行仍保留**：开发调试可 `python main.py`，或用 `run_episode2.cmd`
+  （双击无控制台启动 / `console` 看 traceback / `shortcut` 建源码快捷方式）。
+  普通用户不需要这些步骤，直接下载安装包即可。
+* **版本号口径**：exe / 安装包版本以 `assets/version_info.txt` 为准（v5.3.0 → `5.3.0.0`）；
+  CHANGELOG 历史章节里的 `v5.x` 是开发期界面迭代里程碑标签，两者不是同一套编号。
+* **文件格式**：`.note` / `.annot` 使用 v2 二进制容器（magic 不匹配会明确报错）；
+  更旧的程序读不了 v2 文件，需要交换时用 `save(path, version=1)` 写回 JSON。

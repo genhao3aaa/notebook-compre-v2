@@ -115,6 +115,24 @@ def run_selftest(workdir: Optional[str] = None) -> int:
                     for y in range(0, min(400, img.height()), 7))
         assert inked, "笔画没有画到页面上"
 
+        # ---------------- 3.5 渲染后端探测（打包后必须能 import Rust 核心） ----------------
+        # 为什么要放进来：`src/render/backend.py` 把 hn_core 当**可选依赖**，缺失时
+        # 静默降级到 Python 参考实现。打包若漏收 `hn_core/hn_core.pyd`，前面这些
+        # 功能检查仍然会全过——只有显式探测才能发现「Rust 核心没进包」。
+        # 默认 auto：打印实际选中的后端即可；显式 `HN_RENDER_BACKEND=rust` 时要求
+        # 必须真是 Rust（发布脚本用它验证打包产物）。
+        say("[selftest] 3.5/5 渲染后端探测（Rust 核心是否随包）")
+        from src.render import backend as render_backend
+
+        selected = render_backend.get_backend()
+        say("[selftest] 渲染后端：%s version=%s（HN_RENDER_BACKEND=%s，"
+            "rust_available=%s）" % (selected.name, getattr(selected, "version", "-"),
+                                     render_backend.selected_name(),
+                                     render_backend.rust_available()))
+        if render_backend.selected_name() in ("rust", "rs") and selected.name != "rust":
+            raise AssertionError(
+                "HN_RENDER_BACKEND=rust 但 Rust 后端不可用：打包漏了 hn_core 扩展？")
+
         # ---------------- 4. 保存 .annot（v2 二进制）+ 导出 PDF ----------------
         say("[selftest] 4/5 保存批注（v2，含 MD5）+ 导出带批注 PDF")
         win.save()

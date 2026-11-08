@@ -29,6 +29,9 @@ target/
 
 # ---- 测试 / 工具缓存与日志 ----
 *.log
+# 本地 selftest 工作目录 / Low-IL 测试目录（不应入库）
+hn-selftest-*/
+hn-il-test/
 
 # ---- 运行时生成的数据文件 ----
 *.annot
@@ -37,3 +40,25 @@ target/
 # ---- 基准临时结果（保留 bench_backend_result.json 作为证据）----
 bench_*.json
 !bench_backend_result.json
+
+# ---- 发布构建产物（build_release.ps1 / Inno Setup）----
+# 安装包、SHA256、便携 zip 都输出到这里；发布时只上传到 GitHub Release，不进仓库。
+dist_release/
+release/
+installer/Output/
+# Inno Setup / maturin 等构建工具的本地解压目录（不随仓库分发）
+installer/tools/
+
+# ---- 独立验收 / 发布工作目录（本地协作产物）----
+_release_qa/
+_release_work/
+_acl-recovery/
+
+# ---- 其它构建中间物 ----
+# （build.spec 是手写配置，保留；生成的项目 spec 见上面 PyInstaller 一节）
+build_new/
+dist_new/
+# 安装包 / 构建脚本可能产生的临时文件与日志
+*.tmp
+.*.tmp-*
+selftest.log

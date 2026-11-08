@@ -1,0 +1,222 @@
+# 发布流水线：推送 v* tag（或手动触发）时构建 Windows 安装包并创建 GitHub Release。
+#
+# 与 ci.yml 的分工：
+#   ci.yml      —— 每次 push / PR 跑静态检查、测试、打包冒烟（不发布）
+#   release.yml —— 只在打 tag 时跑完整发布链路（编译 Rust 核心 → build_release.ps1
+#                  → 上传 artifact → 创建 Release）
+#
+# 说明：
+#   * 程序只支持 Windows（Qt 触控笔 / Windows 反馈 API），runner 固定 windows-latest；
+#   * 构建复用仓库里的 build_release.ps1（版本检查 → PyInstaller → 两轮成品自检 →
+#     Inno Setup 安装包 → 打印 SHA256），避免 CI 与本地流程出现两套实现；
+#   * Inno Setup 6 已预装在 GitHub 的 windows-latest 镜像里（C:\Program Files (x86)\Inno Setup 6）；
+#   * 版本号从 git tag 取（去掉 v 前缀），并校验与 assets/version_info.txt、
+#     installer/HandwritingNotebook.iss 一致；约定见 RELEASING.md；
+#   * 创建 Release 需要 contents: write，GITHUB_TOKEN 由 Actions 自动提供，不需要额外 secret。
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号（不带 v 前缀，例如 5.3.0）"
+        required: true
+        type: string
+
+env:
+  QT_QPA_PLATFORM: offscreen
+  PYTHONIOENCODING: utf-8
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+# softprops/action-gh-release 需要写仓库内容（创建 Release / 上传资产）
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: 构建安装包并发布
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 解析版本号
+        id: ver
+        shell: pwsh
+        run: |
+          $v = ""
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $v = "${{ github.ref_name }}".TrimStart("v")
+          } elseif ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $v = "${{ github.event.inputs.version }}"
+          }
+          if (-not $v) { throw "无法确定版本号：tag 名或 workflow_dispatch 输入为空" }
+          if ($v -notmatch '^\d+\.\d+\.\d+$') {
+            throw "版本号应形如 5.3.0（不带 v 前缀），实际：$v"
+          }
+          "version=$v"   | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "tag=v$v"      | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "发布版本：$v"
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: 安装 Python 依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller maturin
+
+      - name: 校验版本号一致
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "版本号格式异常：$v" }
+          $parts = $v.Split('.')
+          $verStr = "$v.0"                       # 5.3.0 -> 5.3.0.0
+          $info = Get-Content assets/version_info.txt -Raw
+
+          # 1) FileVersion / ProductVersion 字符串必须各出现一次（形如 '5.3.0.0'）
+          $strCount = ([regex]::Matches($info, [regex]::Escape("'$verStr'"))).Count
+          if ($strCount -lt 2) {
+            throw "assets/version_info.txt 的 FileVersion / ProductVersion 不是 '$verStr' —— 请先改版本号再打 tag（见 RELEASING.md）"
+          }
+
+          # 2) filevers / prodvers 的元组 (5, 3, 0, 0) 必须同时出现（允许空格差异）
+          $tupleRe = '\(\s*' + ($parts -join '\s*,\s*') + '\s*,\s*0\s*\)'
+          $tupleCount = ([regex]::Matches($info, $tupleRe)).Count
+          if ($tupleCount -lt 2) {
+            throw "assets/version_info.txt 的 filevers / prodvers 不是 ($($parts -join ', '), 0) —— 请先改版本号再打 tag"
+          }
+
+          # 3) 安装包定义里的版本号必须一致（按 token 匹配，避免 15.3.0 之类误判）
+          $iss = Get-ChildItem installer -Recurse -Filter *.iss -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $iss) { throw "找不到 installer/HandwritingNotebook.iss" }
+          $issText = Get-Content $iss.FullName -Raw
+          if ($issText -notmatch ('(^|[^\d.])' + [regex]::Escape($v) + '([^\d.]|$)')) {
+            throw "$($iss.Name) 里没有版本号 $v —— 请先同步安装包版本再打 tag（见 RELEASING.md）"
+          }
+
+          Write-Host "版本一致性检查通过：$v（version_info / 安装包 / tag）"
+
+      - name: 编译 Rust 核心 hn_core
+        run: python build_rust.py
+
+      - name: 发布构建（build_release.ps1）
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          # GitHub windows-latest 镜像预装 Inno Setup 6；装在别处时自动搜索一次。
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            $iscc = (Get-ChildItem "C:\Program Files (x86)" -Filter "Inno Setup*" -Directory -ErrorAction SilentlyContinue |
+              ForEach-Object { Join-Path $_.FullName "ISCC.exe" } |
+              Where-Object { Test-Path $_ } | Select-Object -First 1)
+          }
+          if (-not $iscc) { throw "找不到 ISCC.exe：请确认 runner 上装了 Inno Setup 6" }
+          Write-Host "ISCC：$iscc"
+
+          # build_release.ps1：版本检查 → PyInstaller → 两轮成品自检 → Inno Setup → 打印 SHA256
+          pwsh -NoProfile -ExecutionPolicy Bypass -File build_release.ps1 -Version $v -Iscc $iscc
+          if ($LASTEXITCODE -ne 0) { throw "发布构建失败（退出码 $LASTEXITCODE）" }
+
+          $setup = "dist_release\HandwritingNotebook-$v-Setup.exe"
+          if (-not (Test-Path $setup)) { throw "构建成功但找不到安装包：$setup" }
+          Get-ChildItem dist_release | Format-Table Name, Length | Out-String | Write-Host
+
+      - name: 生成便携版 Portable zip
+        shell: pwsh
+        run: |
+          # 便携版：把 onedir 成品原样放进 HandwritingNotebook-<版本>-Portable/ 后压缩。
+          # 解压即可运行（无需安装），适合不想装到本机 / 受限环境的用户。
+          $v = "${{ steps.ver.outputs.version }}"
+          $src = "dist\手写笔记本与PDF批注"
+          if (-not (Test-Path $src)) { throw "找不到 dist 目录：$src" }
+          $stageRoot = "build\portable"
+          if (Test-Path $stageRoot) { Remove-Item $stageRoot -Recurse -Force }
+          $stage = Join-Path $stageRoot "HandwritingNotebook-$v-Portable"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item (Join-Path $src '*') $stage -Recurse -Force
+          $zip = "dist_release\HandwritingNotebook-$v-Portable.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [System.IO.Compression.ZipFile]::CreateFromDirectory(
+            $stageRoot, $zip, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+          $item = Get-Item $zip
+          Write-Host ("Portable zip: {0} ({1:N1} MB)" -f $item.FullName, ($item.Length / 1MB))
+
+      - name: 校验并生成 SHA256SUMS
+        shell: pwsh
+        run: |
+          # build_release.ps1 已生成 SHA256SUMS；这里再按同一格式重建并覆盖，
+          # 保证 Release 资产里的哈希与上传的 Setup exe / Portable zip 完全对应
+          #（格式：<小写 hash>  <文件名>）。
+          $assets = Get-ChildItem dist_release -File |
+            Where-Object { $_.Extension -in '.exe', '.zip' } | Sort-Object Name
+          if (-not $assets) { throw "dist_release 里没有可发布的 exe / zip，无法生成 SHA256SUMS" }
+          $lines = foreach ($a in $assets) {
+            $h = (Get-FileHash $a.FullName -Algorithm SHA256).Hash.ToLower()
+            "$h  $($a.Name)"
+          }
+          $lines | Set-Content -Path dist_release/SHA256SUMS -Encoding Ascii
+          Write-Host "SHA256SUMS："
+          Get-Content dist_release/SHA256SUMS
+
+      - name: 上传安装包 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HandwritingNotebook-Setup
+          path: |
+            dist_release/*.exe
+            dist_release/*.zip
+            dist_release/SHA256SUMS
+          if-no-files-found: error
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref_type == 'tag'
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ver.outputs.tag }}
+          draft: false
+          prerelease: false
+          generate_release_notes: false
+          files: |
+            dist_release/*.exe
+            dist_release/*.zip
+            dist_release/SHA256SUMS
+          body: |
+            ## 手写笔记本与 PDF 批注 ${{ steps.ver.outputs.tag }}
+
+            Windows 10 / 11（x64）：按用户安装（无需管理员权限），**无需 Python**。
+
+            ### 下载
+            - `HandwritingNotebook-${{ steps.ver.outputs.version }}-Setup.exe` —— 安装包（推荐）
+            - `HandwritingNotebook-${{ steps.ver.outputs.version }}-Portable.zip` —— 便携版（解压即用，不写注册表）
+            - `SHA256SUMS` —— 校验哈希
+
+            ### 安装
+            1. 下载 `HandwritingNotebook-${{ steps.ver.outputs.version }}-Setup.exe`；
+            2. 双击安装（默认装到 `D:\Apps\HandwritingNotebook`；机器没有 D 盘或 D 盘不可写时
+               回退 `%LOCALAPPDATA%\Programs\HandwritingNotebook`，无需管理员）；
+            3. 用桌面 / 开始菜单的「手写笔记本与PDF批注」启动。
+
+            > 安装包未做代码签名，首次运行可能出现 SmartScreen「未知发布者」提示：
+            > 点「更多信息」→「仍要运行」即可。
+
+            ### 卸载
+            「设置 → 应用 → 手写笔记本与PDF批注」→ 卸载。
+
+            完整变更见 `CHANGELOG.md`；项目以 AGPL-3.0 发布。
