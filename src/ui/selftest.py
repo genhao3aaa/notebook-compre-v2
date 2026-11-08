@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 from typing import Optional
 
@@ -39,6 +40,14 @@ def _close(win) -> None:
 
 def run_selftest(workdir: Optional[str] = None) -> int:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    # stdout 可能不是 UTF-8：CI runner（英文 Windows）是 cp1252，某些无控制台环境也是本地编码。
+    # 自检会打印中文，编码不兼容时 print() 直接抛 UnicodeEncodeError，会让自检「假失败」；
+    # 这里把标准输出/错误流切成 UTF-8 + replace，保证任何环境都能把自检跑完（selftest.log 已是 UTF-8）。
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+        except Exception:
+            pass
     # 每次都用一个**新的子目录**：同一个目录重跑时，上一次留下的 .pdf/.annot/settings.ini
     # 会让 `open_pdf` 走到错误分支并弹出模态框（无人点击 → 永久挂住）。
     # 受限文件环境（ACL / 沙箱）下 `mkdtemp` 的 0o700 目录连创建者都进不去，
@@ -56,7 +65,10 @@ def run_selftest(workdir: Optional[str] = None) -> int:
     log_lines = []
 
     def say(msg: str) -> None:
-        print(msg, flush=True)
+        try:
+            print(msg, flush=True)
+        except Exception:                    # 编码 / 无控制台都只影响可见输出，不影响自检结论
+            pass
         log_lines.append(msg)
         try:
             with open(log_path, "w", encoding="utf-8") as f:
