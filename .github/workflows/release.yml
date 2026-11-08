@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "版本号（不带 v 前缀，例如 5.3.0）"
+        description: "版本号（不带 v 前缀，例如 5.3.1）"
         required: true
         type: string
 
@@ -56,7 +56,7 @@ jobs:
           }
           if (-not $v) { throw "无法确定版本号：tag 名或 workflow_dispatch 输入为空" }
           if ($v -notmatch '^\d+\.\d+\.\d+$') {
-            throw "版本号应形如 5.3.0（不带 v 前缀），实际：$v"
+            throw "版本号应形如 5.3.1（不带 v 前缀），实际：$v"
           }
           "version=$v"   | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "tag=v$v"      | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
@@ -84,10 +84,10 @@ jobs:
           $v = "${{ steps.ver.outputs.version }}"
           if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "版本号格式异常：$v" }
           $parts = $v.Split('.')
-          $verStr = "$v.0"                       # 5.3.0 -> 5.3.0.0
+          $verStr = "$v.0"                       # 5.3.1 -> 5.3.1.0
           $info = Get-Content assets/version_info.txt -Raw
 
-          # 1) FileVersion / ProductVersion 字符串必须各出现一次（形如 '5.3.0.0'）
+          # 1) FileVersion / ProductVersion 字符串必须各出现一次（形如 '5.3.1.0'）
           $strCount = ([regex]::Matches($info, [regex]::Escape("'$verStr'"))).Count
           if ($strCount -lt 2) {
             throw "assets/version_info.txt 的 FileVersion / ProductVersion 不是 '$verStr' —— 请先改版本号再打 tag（见 RELEASING.md）"
@@ -100,7 +100,7 @@ jobs:
             throw "assets/version_info.txt 的 filevers / prodvers 不是 ($($parts -join ', '), 0) —— 请先改版本号再打 tag"
           }
 
-          # 3) 安装包定义里的版本号必须一致（按 token 匹配，避免 15.3.0 之类误判）
+          # 3) 安装包定义里的版本号必须一致（按 token 匹配，避免 15.3.1 之类误判）
           $iss = Get-ChildItem installer -Recurse -Filter *.iss -ErrorAction SilentlyContinue |
             Select-Object -First 1
           if (-not $iss) { throw "找不到 installer/HandwritingNotebook.iss" }

@@ -3,7 +3,7 @@
 > 本文件说明 **Episode2** 的 Rust 加速核心：后端契约、对拍口径与实测数据。
 >
 > Episode1 已冻结，只保留在旧仓库 [genhao3aaa/notebook-compre](https://github.com/genhao3aaa/notebook-compre)
-> 作为历史版本。当前版本 **v5.3.0** 以独立仓库
+> 作为历史版本。当前版本 **v5.3.1** 以独立仓库
 > [genhao3aaa/notebook-compre-v2](https://github.com/genhao3aaa/notebook-compre-v2) 发布，首次提供独立安装包：
 > 安装版是真正的 Windows 应用（内置 Python 运行时与 Rust 核心），桌面 / 开始菜单快捷方式指向
 > 安装目录下的 `手写笔记本与PDF批注.exe`；源码启动脚本 `run_episode2.cmd` 只用于开发调试。
@@ -145,7 +145,7 @@ set HN_RENDER_BACKEND=rust       # 强制 Rust（不可用时自动降级并记�
   旧仓库的 clone 地址与安装说明均已过时，日常使用请用新仓库。
 * **Episode2（当前版本）**：自 **v5.3.0** 起以独立仓库
   [genhao3aaa/notebook-compre-v2](https://github.com/genhao3aaa/notebook-compre-v2) 发布，
-  并首次提供**独立安装包**（`HandwritingNotebook-5.3.0-Setup.exe`）：
+  并首次提供**独立安装包**（`HandwritingNotebook-5.3.1-Setup.exe`）：
   * 安装版按用户安装：默认优先 `D:\Apps\HandwritingNotebook`（不占系统盘），
     没有 D 盘（或 D 盘不可写）时回退到 `%LOCALAPPDATA%\Programs\HandwritingNotebook`；
     无需管理员权限，也**无需安装 Python**；
@@ -155,7 +155,7 @@ set HN_RENDER_BACKEND=rust       # 强制 Rust（不可用时自动降级并记�
 * **源码运行仍保留**：开发调试可 `python main.py`，或用 `run_episode2.cmd`
   （双击无控制台启动 / `console` 看 traceback / `shortcut` 建源码快捷方式）。
   普通用户不需要这些步骤，直接下载安装包即可。
-* **版本号口径**：exe / 安装包版本以 `assets/version_info.txt` 为准（v5.3.0 → `5.3.0.0`）；
+* **版本号口径**：exe / 安装包版本以 `assets/version_info.txt` 为准（v5.3.1 → `5.3.1.0`）；
   CHANGELOG 历史章节里的 `v5.x` 是开发期界面迭代里程碑标签，两者不是同一套编号。
 * **文件格式**：`.note` / `.annot` 使用 v2 二进制容器（magic 不匹配会明确报错）；
   更旧的程序读不了 v2 文件，需要交换时用 `save(path, version=1)` 写回 JSON。

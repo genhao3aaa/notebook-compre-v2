@@ -12,7 +12,7 @@
 > with an optional Rust rendering core.
 
 > **只想使用？** 到 [GitHub Releases](https://github.com/genhao3aaa/notebook-compre-v2/releases)
-> 下载 `HandwritingNotebook-5.3.0-Setup.exe` 安装即可（Windows 10 / 11 x64，**无需 Python**）。
+> 下载 `HandwritingNotebook-5.3.1-Setup.exe` 安装即可（Windows 10 / 11 x64，**无需 Python**）。
 > **想开发 / 二次开发？** 见下方[从源码安装](#从源码安装)。
 
 ---
@@ -153,11 +153,11 @@
 不需要装 Python、不需要命令行，从 **GitHub Releases** 下载安装包即可：
 
 1. 打开 <https://github.com/genhao3aaa/notebook-compre-v2/releases>，下载最新版本的
-   **`HandwritingNotebook-5.3.0-Setup.exe`**。
+   **`HandwritingNotebook-5.3.1-Setup.exe`**。
 2. （建议）核对下载完整性：Release 里的 `SHA256SUMS` 附有各资产的 SHA256。
 
    ```powershell
-   Get-FileHash .\HandwritingNotebook-5.3.0-Setup.exe -Algorithm SHA256
+   Get-FileHash .\HandwritingNotebook-5.3.1-Setup.exe -Algorithm SHA256
    ```
 
 3. 双击安装（**简体中文向导**，英文系统自动回退英文）。安装包**按用户安装**
@@ -183,7 +183,7 @@
 
    - 桌面快捷方式「**手写笔记本与PDF批注**」；
    - 开始菜单文件夹「手写笔记本与PDF批注」+ 程序 / 卸载快捷方式；
-   - 「设置 → 应用」里的卸载项（显示为「手写笔记本与PDF批注 5.3.0」）。
+   - 「设置 → 应用」里的卸载项（显示为「手写笔记本与PDF批注 5.3.1」）。
 
 5. 双击桌面快捷方式启动。也可以把 `.note` / `.pdf` / `.md` 拖到快捷方式上，
    或右键「打开方式 → 选择其他应用」指向安装目录里的 `手写笔记本与PDF批注.exe`。
@@ -423,7 +423,7 @@ powershell -ExecutionPolicy Bypass -File build_release.ps1
 # 也可显式指定工具路径 / 版本：
 #   -Iscc "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 #   -Python .venv\Scripts\python.exe
-#   -Version 5.3.0
+#   -Version 5.3.1
 ```
 
 脚本依次完成：
@@ -431,7 +431,7 @@ powershell -ExecutionPolicy Bypass -File build_release.ps1
 1. **版本号一致性检查** —— `assets\version_info.txt` ↔ `installer\HandwritingNotebook.iss` ↔ 目标版本；
 2. `pyinstaller build.spec --clean --noconfirm`（onedir 白名单裁剪，收集 Rust 核心 `hn_core`）；
 3. **成品自检两轮**：默认后端 + 强制 `HN_RENDER_BACKEND=rust`，都必须是 `SELFTEST OK`，
-   且 Rust 轮次自检输出「渲染后端：rust」；同时校验 exe 的版本资源为 `5.3.0.0`；
+   且 Rust 轮次自检输出「渲染后端：rust」；同时校验 exe 的版本资源为 `5.3.1.0`；
 4. 用 Inno Setup 的 `ISCC.exe`（`/DMyAppVersion=<版本>`）编译
    `installer\HandwritingNotebook.iss`，并校验安装包的版本资源；
 5. 打印全部产物路径、文件大小与 SHA256，并把安装包的 SHA256 写入
@@ -440,7 +440,7 @@ powershell -ExecutionPolicy Bypass -File build_release.ps1
 **产物：**
 
 ```
-dist_release\HandwritingNotebook-5.3.0-Setup.exe
+dist_release\HandwritingNotebook-5.3.1-Setup.exe
 dist_release\SHA256SUMS
 ```
 
@@ -453,8 +453,8 @@ dist_release\SHA256SUMS
 打开方式（不抢默认程序），并在「设置 → 应用」注册卸载项。安装版**无需 Python**，
 且**已内置 Rust 核心**（扩展缺失时仍自动降级到纯 Python 实现）。
 
-**版本号**：exe / 安装包版本以 `assets\version_info.txt` 为准（v5.3.0 → `5.3.0.0`），
-需与 `installer\HandwritingNotebook.iss` 和 git tag（`v5.3.0`）保持一致。完整的发布检查清单见
+**版本号**：exe / 安装包版本以 `assets\version_info.txt` 为准（v5.3.1 → `5.3.1.0`），
+需与 `installer\HandwritingNotebook.iss` 和 git tag（`v5.3.1`）保持一致。完整的发布检查清单见
 [RELEASING.md](RELEASING.md)；推送 `v*` tag 后 `.github\workflows\release.yml` 会在
 windows-latest 上自动构建并创建 GitHub Release。
 
@@ -466,7 +466,7 @@ Windows SmartScreen 的声誉检查——**这不是杀毒告警**。
 - 在提示里点「**更多信息**」→「**仍要运行**」即可；
 - **不要**为了它关闭 SmartScreen / Defender 全局防护；
 - 如果安装包是从别处拷来的（U 盘、聊天工具、压缩包），先解除下载标记：
-  `Unblock-File .\HandwritingNotebook-5.3.0-Setup.exe`。
+  `Unblock-File .\HandwritingNotebook-5.3.1-Setup.exe`。
 
 **本仓库已内置签名流水线**（`build_release.ps1` + `release.yml`）：只要提供证书，构建时会对
 dist 里的 exe 与最终安装包签名（**先签 exe 再打安装包**，保证安装后的程序也是签名版本）：

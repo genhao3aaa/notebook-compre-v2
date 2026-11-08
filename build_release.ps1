@@ -22,7 +22,7 @@
     Inno Setup 6 常见安装位置。
 
 .PARAMETER Version
-    覆盖版本号（形如 5.3.0）。默认从 assets/version_info.txt 读取，
+    覆盖版本号（形如 5.3.1）。默认从 assets/version_info.txt 读取，
     仅用于「验证脚本对得上」或发布演练；正常发布不要传。
 
 .PARAMETER CertThumbprint
@@ -52,7 +52,7 @@
 .NOTES
     产物：
       dist\手写笔记本与PDF批注\手写笔记本与PDF批注.exe
-      dist_release\HandwritingNotebook-5.3.0-Setup.exe
+      dist_release\HandwritingNotebook-5.3.1-Setup.exe
 #>
 [CmdletBinding()]
 param(
@@ -409,7 +409,7 @@ if ($SkipInstaller) {
     if ($isccExit -ne 0) { Fail ("ISCC 编译失败（退出码 {0}），日志：{1}" -f $isccExit, $issLog) }
     if (-not (Test-Path -LiteralPath $SetupExe)) { Fail "ISCC 成功但找不到安装包：$SetupExe" }
     $setupInfo = (Get-Item -LiteralPath $SetupExe).VersionInfo
-    # Inno 写进 Setup.exe 的 FileVersion 会补空格（"5.3.0.0             "），这里先 Trim
+    # Inno 写进 Setup.exe 的 FileVersion 会补空格（"5.3.1.0             "），这里先 Trim
     if ($setupInfo.FileVersion.Trim() -ne $expected4) {
         Fail ("安装包 FileVersion={0}，与目标 {1} 不一致" -f $setupInfo.FileVersion, $expected4)
     }

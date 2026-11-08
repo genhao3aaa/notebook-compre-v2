@@ -58,15 +58,15 @@ powershell -ExecutionPolicy Bypass -File build_release.ps1 -Pfx my.pfx -PfxPassw
 
 ## 1. 确定版本号
 
-版本号形如 `5.3.0`（语义化版本），发布物命名 `HandwritingNotebook-5.3.0-Setup.exe`。
+版本号形如 `5.3.1`（语义化版本），发布物命名 `HandwritingNotebook-5.3.1-Setup.exe`。
 
 以下**三处必须一致**，否则构建 / CI 会失败：
 
 | 位置 | 应写的内容 |
 |---|---|
-| `assets/version_info.txt` | `filevers=(5, 3, 0, 0)`、`FileVersion` 与 `ProductVersion` = `5.3.0.0` |
-| `installer/HandwritingNotebook.iss` | 安装包版本（`AppVersion` / `AppVerName`）= `5.3.0` |
-| git tag 与 GitHub Release | `v5.3.0` |
+| `assets/version_info.txt` | `filevers=(5, 3, 0, 0)`、`FileVersion` 与 `ProductVersion` = `5.3.1.0` |
+| `installer/HandwritingNotebook.iss` | 安装包版本（`AppVersion` / `AppVerName`）= `5.3.1` |
+| git tag 与 GitHub Release | `v5.3.1` |
 
 > `build_release.ps1` 会先做版本一致性检查；`release.yml` 会用 tag（去掉 `v`）校验
 > `assets/version_info.txt` 中的版本，不一致时直接失败。
@@ -99,7 +99,7 @@ powershell -ExecutionPolicy Bypass -File build_release.ps1
 1. **版本一致性检查**：`assets/version_info.txt` ↔ `installer/HandwritingNotebook.iss` ↔ 目标版本；
 2. `pyinstaller build.spec --clean --noconfirm` 打包（onedir 白名单裁剪 + 收集 `hn_core`）；
 3. **两轮成品自检**：默认后端 + 强制 `HN_RENDER_BACKEND=rust`，都要求 `SELFTEST OK`，
-   Rust 轮次还要求自检输出「渲染后端：rust」；同时校验 exe 的 `FileVersion=5.3.0.0`；
+   Rust 轮次还要求自检输出「渲染后端：rust」；同时校验 exe 的 `FileVersion=5.3.1.0`；
 4. `ISCC.exe /DMyAppVersion=<版本>` 编译安装包，并校验 Setup 的版本资源；
 5. 打印产物路径、字节数与 SHA256（以及 `dist` 总大小 / 文件数），并生成
    `dist_release\SHA256SUMS`（安装包的 SHA256；未编译安装包时跳过）。
@@ -118,7 +118,7 @@ powershell -ExecutionPolicy Bypass -File build_release.ps1
 产物：
 
 ```
-dist_release\HandwritingNotebook-5.3.0-Setup.exe
+dist_release\HandwritingNotebook-5.3.1-Setup.exe
 dist_release\SHA256SUMS
 ```
 
@@ -126,7 +126,7 @@ dist_release\SHA256SUMS
 重新生成一次并随 Release 上传。本机校验：
 
 ```powershell
-Get-FileHash .\dist_release\HandwritingNotebook-5.3.0-Setup.exe -Algorithm SHA256
+Get-FileHash .\dist_release\HandwritingNotebook-5.3.1-Setup.exe -Algorithm SHA256
 ```
 
 ## 4. 安装验收（发布前必须真装一次）
@@ -135,7 +135,7 @@ Get-FileHash .\dist_release\HandwritingNotebook-5.3.0-Setup.exe -Algorithm SHA25
 
 ```powershell
 # 静默安装（Inno Setup 参数）
-.\dist_release\HandwritingNotebook-5.3.0-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+.\dist_release\HandwritingNotebook-5.3.1-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
 ```
 
 安装位置约定：**D 盘存在且可写时默认装到 `D:\Apps\HandwritingNotebook`**（不占系统盘）；
@@ -153,7 +153,7 @@ Get-FileHash .\dist_release\HandwritingNotebook-5.3.0-Setup.exe -Algorithm SHA25
 - [ ] 强制 Rust 后端再自检一次：`set HN_RENDER_BACKEND=rust` 后同样 `SELFTEST OK`；
 - [ ] 桌面快捷方式「手写笔记本与PDF批注」的 TargetPath / WorkingDirectory 指向 `<安装目录>` 的 exe；
 - [ ] 开始菜单文件夹「手写笔记本与PDF批注」+ 程序 / 卸载快捷方式存在；
-- [ ] 「设置 → 应用」里有卸载项，显示名含 `5.3.0`；exe / Setup 的「属性 → 详细信息」版本为 `5.3.0.0`；
+- [ ] 「设置 → 应用」里有卸载项，显示名含 `5.3.1`；exe / Setup 的「属性 → 详细信息」版本为 `5.3.1.0`；
 - [ ] 双击启动不弹控制台，任务栏显示应用名与图标（不是 python）；
 - [ ] 打开 PDF / 新建笔记 / 保存批注 / 导出 PDF 正常；
 - [ ] 安装时勾选的可选任务「注册 `.note` 打开方式」只在右键「打开方式」里出现，不抢占默认程序；
@@ -173,10 +173,10 @@ Get-FileHash .\dist_release\HandwritingNotebook-5.3.0-Setup.exe -Algorithm SHA25
 
 ```bash
 git add -A
-git commit -m "chore(release): v5.3.0"
-git tag -a v5.3.0 -m "v5.3.0"
+git commit -m "chore(release): v5.3.1"
+git tag -a v5.3.1 -m "v5.3.1"
 git push origin main
-git push origin v5.3.0
+git push origin v5.3.1
 ```
 
 推送 `v*` tag 会触发 `.github/workflows/release.yml` 自动构建并创建 Release。
@@ -189,14 +189,14 @@ git push origin v5.3.0
 
 ## 7. GitHub Release 资产
 
-Release 标题 `v5.3.0`。如果 Release 由 CI 自动创建，正文是 `release.yml` 里的简短模板
+Release 标题 `v5.3.1`。如果 Release 由 CI 自动创建，正文是 `release.yml` 里的简短模板
 （安装 / 校验 / 卸载说明）；手动创建时可用 `CHANGELOG.md` 对应段落。需要上传：
 
 | 资产 | 必需 | 说明 |
 |---|---|---|
-| `HandwritingNotebook-5.3.0-Setup.exe` | ✅ | Windows 安装包（按用户安装） |
+| `HandwritingNotebook-5.3.1-Setup.exe` | ✅ | Windows 安装包（按用户安装） |
 | `SHA256SUMS` | ✅ | 所有资产的 SHA256，供用户校验 |
-| `HandwritingNotebook-5.3.0-portable.zip` | 可选 | 源码版 `dist\手写笔记本与PDF批注\` 打包，免安装 |
+| `HandwritingNotebook-5.3.1-portable.zip` | 可选 | 源码版 `dist\手写笔记本与PDF批注\` 打包，免安装 |
 
 发布后检查：
 
@@ -212,7 +212,7 @@ Release 标题 `v5.3.0`。如果 Release 由 CI 自动创建，正文是 `releas
 | 触发 | push tag `v*`；另有 `workflow_dispatch` 手动触发 |
 | Runner | `windows-latest` |
 | 权限 | `permissions: contents: write`（创建 Release 需要） |
-| 版本号 | 从 tag 取并去掉 `v` 前缀（`v5.3.0` → `5.3.0`），校验与 `assets/version_info.txt` 一致 |
+| 版本号 | 从 tag 取并去掉 `v` 前缀（`v5.3.1` → `5.3.1`），校验与 `assets/version_info.txt` 一致 |
 | 工具链 | `actions/checkout@v4`、`actions/setup-python@v5`（3.12）、`dtolnay/rust-toolchain@stable`、maturin |
 | Inno Setup | 直接用 runner 预装的 `C:\Program Files (x86)\Inno Setup 6\ISCC.exe` |
 | 步骤 | 装依赖 → 编译 `hn_core` → 校验版本 → `build_release.ps1`（内含 PyInstaller、两轮自检、ISCC）→ 生成 `SHA256SUMS` → 上传 artifact |
@@ -238,8 +238,8 @@ CI 上 Inno Setup 位于 `C:\Program Files (x86)\Inno Setup 6\ISCC.exe`。
 本机信任，**消除别人机器上的提示需要受信任的 OV/EV 证书**（或 SignPath 等开源签名服务）。
 
 **tag 推错了**
-：先删 GitHub Release，再删远端 tag（`git push origin :refs/tags/v5.3.0`）与本地 tag
-（`git tag -d v5.3.0`），修正后重新打 tag 推送。
+：先删 GitHub Release，再删远端 tag（`git push origin :refs/tags/v5.3.1`）与本地 tag
+（`git tag -d v5.3.1`），修正后重新打 tag 推送。
 
 **发布物能否只发源码**
 ：可以，但 AGPL-3.0 要求分发二进制时同时提供对应完整源码；发布安装包请与同版本的源码 tag 一起发布。

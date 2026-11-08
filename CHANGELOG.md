@@ -7,6 +7,20 @@
 
 ---
 
+## v5.3.1：启动性能修复 + 代码签名流水线（2026-11）
+
+- **修复启动卡顿**：双击后不再弹“批注不匹配”模态框；窗口约 1.2 秒出现，
+  会话恢复完成后状态栏提示“已忽略 N 份不匹配的旧批注”；
+  非当前 Markdown 标签改为懒排版（详见下节）。
+- **代码签名流水线**：build_release.ps1 新增 -CertThumbprint / -Pfx / -PfxPassword，
+  先签 exe 再打安装包、最后签 Setup；release.yml 支持
+  SIGNING_PFX_BASE64 / SIGNING_PFX_PASSWORD Secrets 自动签名。
+- **版本号**：exe / 安装包版本资源升至 5.3.1.0。
+- **验证**：相关回归 107 项 + 新增 4 项通过；pyright 0 error；CI 全绿；
+  安装验收 29/29 PASS。
+
+---
+
 ## 缺陷修复：启动阶段「批注不匹配」弹窗阻塞 + 公式密集 Markdown 卡启动（2026-11）
 
 **现象**
