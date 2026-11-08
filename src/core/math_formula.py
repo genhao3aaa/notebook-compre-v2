@@ -389,7 +389,8 @@ class _Parser:
         if tok is not None and tok[0] == "open":
             self._next()
             body = self._parse_list(("}",))
-            if self._peek() is not None and self._peek()[0] == "close":
+            tok = self._peek()
+            if tok is not None and tok[0] == "close":
                 self._next()
             return body
         node = self._parse_atom()
@@ -450,7 +451,8 @@ class _Parser:
             return None
         if kind == "open":
             body = self._parse_list(("}",))
-            if self._peek() is not None and self._peek()[0] == "close":
+            tok2 = self._peek()
+            if tok2 is not None and tok2[0] == "close":
                 self._next()
             return body
         if kind == "close":
