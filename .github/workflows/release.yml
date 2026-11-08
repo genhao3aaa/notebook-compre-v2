@@ -128,8 +128,21 @@ jobs:
           if (-not $iscc) { throw "找不到 ISCC.exe：请确认 runner 上装了 Inno Setup 6" }
           Write-Host "ISCC：$iscc"
 
-          # build_release.ps1：版本检查 → PyInstaller → 两轮成品自检 → Inno Setup → 打印 SHA256
-          pwsh -NoProfile -ExecutionPolicy Bypass -File build_release.ps1 -Version $v -Iscc $iscc
+          # build_release.ps1：版本检查 → PyInstaller → 两轮成品自检 → Inno Setup →（可选签名）→ 打印 SHA256
+          $params = @('-Version', $v, '-Iscc', $iscc)
+          # 可选代码签名：仓库 Secrets 配好后自动对 exe 与安装包签名（见 RELEASING.md §0.1）
+          #   SIGNING_PFX_BASE64   —— PFX 文件的单行 Base64
+          #   SIGNING_PFX_PASSWORD —— PFX 密码
+          $pfxB64 = "${{ secrets.SIGNING_PFX_BASE64 }}"
+          if ($pfxB64) {
+            $pfxPath = Join-Path $env:RUNNER_TEMP 'signing.pfx'
+            [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($pfxB64))
+            $params += @('-Pfx', $pfxPath, '-PfxPassword', "${{ secrets.SIGNING_PFX_PASSWORD }}")
+            Write-Host '检测到 SIGNING_PFX_BASE64：将对 exe 与安装包签名'
+          } else {
+            Write-Host '未配置签名证书 Secrets：本次构建不签名（详见 RELEASING.md §0.1）'
+          }
+          pwsh -NoProfile -ExecutionPolicy Bypass -File build_release.ps1 @params
           if ($LASTEXITCODE -ne 0) { throw "发布构建失败（退出码 $LASTEXITCODE）" }
 
           $setup = "dist_release\HandwritingNotebook-$v-Setup.exe"

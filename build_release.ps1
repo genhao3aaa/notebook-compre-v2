@@ -25,6 +25,15 @@
     覆盖版本号（形如 5.3.0）。默认从 assets/version_info.txt 读取，
     仅用于「验证脚本对得上」或发布演练；正常发布不要传。
 
+.PARAMETER CertThumbprint
+    CurrentUser\My 里的代码签名证书指纹。指定后对 dist 成品与安装包签名（本机推荐）。
+
+.PARAMETER Pfx
+    代码签名证书 PFX 路径（CI 用，配合 -PfxPassword）；未指定 -CertThumbprint 时生效。
+
+.PARAMETER PfxPassword
+    PFX 密码（明文，仅在本构建进程中短暂使用）。
+
 .PARAMETER SkipBuild
     跳过 PyInstaller（复用已有 dist\ 产物），仍会做成品自检 / 安装包 / 版本校验。
 
@@ -50,6 +59,9 @@ param(
     [string]$Python = "",
     [string]$Iscc = "",
     [string]$Version = "",
+    [string]$CertThumbprint = "",
+    [string]$Pfx = "",
+    [string]$PfxPassword = "",
     [switch]$SkipBuild,
     [switch]$SkipInstaller,
     [switch]$SkipSelftest
@@ -204,8 +216,54 @@ Write-Host ("Python : {0}" -f $PythonExe)
 if ($LASTEXITCODE -ne 0) { Fail 'Python 依赖不完整（PyInstaller / PySide6 / PyMuPDF / numpy / Pillow）' }
 $IsccExe = $null
 if (-not $SkipInstaller) {
+# ---------------------------------------------------------------------- #
+# 代码签名（可选）：-CertThumbprint 或 -Pfx / -PfxPassword
+# ---------------------------------------------------------------------- #
+# 顺序很重要：先给 dist 里的 exe 签名，再让 ISCC 把它打进安装包；
+# 安装包编译完成后再给 Setup.exe 签名（SmartScreen / 文件属性看的是 Setup 本身）。
+function Resolve-SigningCertificate {
+    param([string]$Thumbprint, [string]$PfxPath, [string]$Password)
+    if ($Thumbprint) {
+        $found = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert |
+            Where-Object { $_.Thumbprint -eq $Thumbprint } | Select-Object -First 1
+        if (-not $found) { Fail ("CurrentUser\My 里找不到代码签名证书：{0}" -f $Thumbprint) }
+        return $found
+    }
+    if ($PfxPath) {
+        if (-not (Test-Path -LiteralPath $PfxPath)) { Fail ("找不到证书文件：{0}" -f $PfxPath) }
+        $secure = ConvertTo-SecureString -String $Password -AsPlainText -Force
+        return Import-PfxCertificate -FilePath $PfxPath -Password $secure -CertStoreLocation Cert:\CurrentUser\My
+    }
+    return $null
+}
+
+function Sign-Artifact {
+    param([string]$Path, $Cert)
+    $sig = $null
+    try {
+        $sig = Set-AuthenticodeSignature -FilePath $Path -Certificate $Cert -HashAlgorithm SHA256 -TimestampServer 'http://timestamp.digicert.com'
+    } catch {
+        $sig = $null
+    }
+    if (-not $sig -or $sig.Status -ne 'Valid') {
+        # 时间戳服务器不可达时退化为不带时间戳（自签名/本机场景足够；对外分发应配置可用时间戳）
+        $sig = Set-AuthenticodeSignature -FilePath $Path -Certificate $Cert -HashAlgorithm SHA256
+    }
+    if ($sig.Status -ne 'Valid') {
+        Fail ("代码签名失败：{0}（{1}）" -f (Split-Path $Path -Leaf), $sig.StatusMessage)
+    }
+    Write-Host ("已签名：{0}（{1}）" -f (Split-Path $Path -Leaf), $Cert.Subject)
+}
+
     $IsccExe = Resolve-Iscc $Iscc
     Write-Host ("ISCC   : {0}" -f $IsccExe)
+}
+
+$SigningCert = Resolve-SigningCertificate -Thumbprint $CertThumbprint -PfxPath $Pfx -Password $PfxPassword
+if ($SigningCert) {
+    Write-Host ("签名证书：{0}（{1}）" -f $SigningCert.Subject, $SigningCert.Thumbprint)
+} else {
+    Write-Host '未指定签名证书（-CertThumbprint / -Pfx），跳过代码签名'
 }
 
 New-Item -ItemType Directory -Force -Path $BuildLogDir | Out-Null
@@ -244,6 +302,9 @@ if ($exeInfo.FileVersion.Trim() -ne $expected4) {
     Fail ("PyInstaller 成品 FileVersion={0}，与 version_info.txt 的 {1} 不一致" -f $exeInfo.FileVersion, $expected4)
 }
 Write-Host ("成品版本资源 OK：FileVersion={0} ProductVersion={1}" -f $exeInfo.FileVersion, $exeInfo.ProductVersion)
+
+# 先给 dist 成品签名：ISCC 会把签名后的 exe 打进安装包
+if ($SigningCert) { Sign-Artifact -Path $DistExe -Cert $SigningCert }
 
 # ---------------------------------------------------------------------- #
 # 成品自检
@@ -354,6 +415,8 @@ if ($SkipInstaller) {
     }
     Write-Host ("安装包版本资源 OK：FileVersion={0}" -f $setupInfo.FileVersion)
     Write-Host ("ISCC 日志：{0}" -f $issLog)
+    # 安装包也要签名（SmartScreen / 文件属性看的是 Setup 本身）
+    if ($SigningCert) { Sign-Artifact -Path $SetupExe -Cert $SigningCert }
 }
 
 # ---------------------------------------------------------------------- #
@@ -378,6 +441,11 @@ foreach ($a in $artifacts) {
     Write-Host ("  路径   : {0}" -f $item.FullName)
     Write-Host ("  字节数 : {0:N0}" -f $item.Length)
     Write-Host ("  SHA256 : {0}" -f $hash)
+    if ($SigningCert) {
+        $sigInfo = Get-AuthenticodeSignature -LiteralPath $a.Path
+        $signerName = if ($sigInfo.SignerCertificate) { $sigInfo.SignerCertificate.Subject } else { '（未签名，例如原生 .pyd）' }
+        Write-Host ("  签名   : {0} {1}" -f $sigInfo.Status, $signerName)
+    }
 }
 # 落盘校验和文件（发布用；CI/人工都能直接核对）
 $sumsPath = Join-Path $ReleaseDir 'SHA256SUMS'

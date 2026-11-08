@@ -15,7 +15,7 @@
 | PyInstaller | 打源码版 exe | `pip install pyinstaller` |
 | Inno Setup 6 | 编译安装包 | `winget install JRSoftware.InnoSetup`，或 <https://jrsoftware.org/isdl.php> |
 | Rust 工具链 + maturin | 编译 `hn_core` 加速核心 | `winget install Rustlang.Rustup` + `pip install maturin` |
-| 代码签名证书（可选） | 消除 SmartScreen 提示 | 商业 OV/EV 证书 / Azure Trusted Signing |
+| 代码签名证书（可选） | 对 exe / 安装包签名（详见 §0.1） | 商业 OV/EV 证书、Azure Trusted Signing、SignPath（开源免费）或自签名（仅本机信任） |
 
 Inno Setup 默认装在 `C:\Program Files (x86)\Inno Setup 6`；装在别处时用
 `build_release.ps1 -Iscc <ISCC.exe 路径>` 指定（或设环境变量 `HN_ISCC`），脚本也会搜索
@@ -23,6 +23,38 @@ PATH / Program Files / `%LOCALAPPDATA%\Programs\Inno Setup 6` 等常见位置。
 
 GitHub 侧不需要额外 secret：Release 由 `.github/workflows/release.yml` 用仓库自带的
 `GITHUB_TOKEN` 创建，因此 workflow 里必须有 `permissions: contents: write`。
+
+### 0.1 可选：代码签名（对外分发强烈建议）
+
+`build_release.ps1` 支持在构建时签名（先签 dist 里的 exe，再让 ISCC 打进安装包，最后签 Setup）：
+
+```powershell
+# 证书已在 CurrentUser\My（含私钥）
+powershell -ExecutionPolicy Bypass -File build_release.ps1 -CertThumbprint <指纹>
+
+# 用 PFX 文件（CI / 另一台机器）
+powershell -ExecutionPolicy Bypass -File build_release.ps1 -Pfx my.pfx -PfxPassword <口令>
+```
+
+**CI 自动签名**：在仓库 Settings → Secrets and variables → Actions 添加：
+
+| Secret | 内容 |
+|---|---|
+| `SIGNING_PFX_BASE64` | PFX 文件的单行 Base64（`[Convert]::ToBase64String([IO.File]::ReadAllBytes('my.pfx'))`） |
+| `SIGNING_PFX_PASSWORD` | PFX 密码 |
+
+配置后 `release.yml` 会在 `build_release.ps1` 里自动加 `-Pfx/-PfxPassword` 并签名；未配置则跳过
+签名（产物仍可发布，只是会有 SmartScreen「未知发布者」提示）。
+
+**证书选择**：
+
+- **自签名**：一条命令生成、只对本机/内部有效，适合公司内分发（证书私钥不要入库）；
+- **Azure Trusted Signing**：微软托管，按需付费，需完成组织身份验证；
+- **Certum Open Source Code Signing**：开源项目可申请，价格低；
+- **SignPath.io**：面向开源项目的免费/赞助签名服务，可与 GitHub Actions 集成。
+
+> 自签名证书不能消除**别人机器**上的 SmartScreen 提示；要实现「无提示」必须使用受信任的
+> OV/EV 证书，并让新发布物逐步积累 SmartScreen 信誉（新证书初期仍可能提示）。
 
 ## 1. 确定版本号
 
@@ -200,8 +232,10 @@ CI 上 Inno Setup 位于 `C:\Program Files (x86)\Inno Setup 6\ISCC.exe`。
 裁掉了。用 `build.spec` 打包（不要用 `-F` 临时命令）并检查裁剪白名单。
 
 **SmartScreen 提示「未知发布者」**
-：安装包未签名。可在发布前用 `sign_dist.py` 对 exe 签名（自签名证书不能消除提示，
-对外分发需要 OV/EV 证书或 Azure Trusted Signing）。
+：安装包未签名。用 `build_release.ps1 -CertThumbprint <指纹>` 或 `-Pfx <pfx> -PfxPassword <口令>`
+在构建时签名（先签 exe 再打安装包，安装后的程序也是签名版本）；CI 侧配置
+`SIGNING_PFX_BASE64` / `SIGNING_PFX_PASSWORD` 两个 Secrets 后自动签名。自签名证书只能让
+本机信任，**消除别人机器上的提示需要受信任的 OV/EV 证书**（或 SignPath 等开源签名服务）。
 
 **tag 推错了**
 ：先删 GitHub Release，再删远端 tag（`git push origin :refs/tags/v5.3.0`）与本地 tag

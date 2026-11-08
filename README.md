@@ -203,9 +203,10 @@
   （默认例如 `D:\Apps\HandwritingNotebook\unins000.exe`）；
   静默卸载：`unins000.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART`。
   卸载不会删除你的笔记 / 批注文件与偏好设置。
-- 安装包与 exe **未做代码签名**，首次运行时可能出现 Windows SmartScreen 的
+- 发布物**默认未做代码签名**（CI 构建）；首次运行时可能出现 Windows SmartScreen 的
   「未知发布者」提示：点「更多信息」→「仍要运行」即可（详见下文
-  [关于 SmartScreen](#关于-smartscreen未知发布者提示)）。
+  [代码签名与 SmartScreen](#代码签名与-smartscreen)）。本仓库构建脚本支持配置证书后对
+  exe 与安装包签名。
 - 数据位置：批注默认写在 PDF 旁边（同名 `.annot`），写不进去时退到
   `%LOCALAPPDATA%\手写笔记本与PDF批注\annotations\`；偏好设置默认写注册表
   `HKCU\Software\WorkBuddy\HandwritingNotebook`，写不进去时自动改用 INI 文件。
@@ -457,26 +458,46 @@ dist_release\SHA256SUMS
 [RELEASING.md](RELEASING.md)；推送 `v*` tag 后 `.github\workflows\release.yml` 会在
 windows-latest 上自动构建并创建 GitHub Release。
 
-### 关于 SmartScreen「未知发布者」提示
+### 代码签名与 SmartScreen
 
-安装包与 exe **未做代码签名**，在别的机器上首次运行会触发 Windows SmartScreen 的声誉检查
-——**这不是杀毒告警**。
+发布物**默认未签名**（GitHub Release 由 CI 构建时不带证书），在别的机器上首次运行会触发
+Windows SmartScreen 的声誉检查——**这不是杀毒告警**。
 
 - 在提示里点「**更多信息**」→「**仍要运行**」即可；
 - **不要**为了它关闭 SmartScreen / Defender 全局防护；
 - 如果安装包是从别处拷来的（U 盘、聊天工具、压缩包），先解除下载标记：
   `Unblock-File .\HandwritingNotebook-5.3.0-Setup.exe`。
 
-根治需要代码签名证书（本仓库提供 `sign_dist.py`）：
+**本仓库已内置签名流水线**（`build_release.ps1` + `release.yml`）：只要提供证书，构建时会对
+dist 里的 exe 与最终安装包签名（**先签 exe 再打安装包**，保证安装后的程序也是签名版本）：
 
-```bash
-python sign_dist.py --pfx my.pfx --password <口令>
-python sign_dist.py --thumbprint <证书指纹>   # 或证书已装进证书库时
-python sign_dist.py --check                   # 只看当前签名状态
+```powershell
+# 本机：证书已装进 CurrentUser\My（含私钥）时，用指纹签名
+powershell -ExecutionPolicy Bypass -File build_release.ps1 -CertThumbprint <证书指纹>
+
+# 本机 / CI：用 PFX 文件签名
+powershell -ExecutionPolicy Bypass -File build_release.ps1 -Pfx my.pfx -PfxPassword <口令>
 ```
 
-> 自签名证书**不能**消除 SmartScreen 提示，仅适合内部机器；对外分发需 OV/EV 代码签名证书
-> 或 Azure Trusted Signing。
+**自签名证书**（仅适合本机 / 内部使用；别人机器上仍会提示未知发布者）：
+
+```powershell
+$cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Handwriting Notebook Project" `
+  -KeyUsage DigitalSignature -KeyAlgorithm RSA -KeyLength 3072 -HashAlgorithm SHA256 `
+  -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddYears(5)
+Export-Certificate -Cert $cert -FilePath hn-codesign.cer | Out-Null
+certutil -user -addstore Root hn-codesign.cer
+certutil -user -addstore TrustedPublisher hn-codesign.cer
+powershell -ExecutionPolicy Bypass -File build_release.ps1 -CertThumbprint $cert.Thumbprint
+```
+
+> 自签名证书**不能消除别人机器上的 SmartScreen 提示**，只适合本机 / 内部；对外分发需要
+> 受信任的代码签名证书（OV/EV）。可选路径：**Azure Trusted Signing**（按需付费，需完成组织
+> 身份验证）、**Certum Open Source Code Signing**（开源项目免费/低成本）、**SignPath.io**
+> （面向开源项目的免费托管签名）。拿到证书后把 PFX 放进 GitHub Secrets
+> （`SIGNING_PFX_BASE64` / `SIGNING_PFX_PASSWORD`），`release.yml` 会自动签名。
+> 已有产物也可用 `sign_dist.py` 单独检查/签名：
+> `python sign_dist.py --pfx my.pfx --password <口令>` / `--thumbprint <指纹>` / `--check`。
 
 ---
 
@@ -646,8 +667,8 @@ notebook-compre-v2/
 **安装版相关**
 
 - 仅支持 **Windows 10 / 11 x64**；没有 macOS / Linux 版本。
-- 安装包与 exe **未做代码签名**，首次运行可能触发 SmartScreen「未知发布者」提示
-  （见「关于 SmartScreen」，自签名证书不能消除该提示）。
+- 发布物**默认未签名**（可用 `build_release.ps1` 配置证书后签名）；未签名版本首次运行可能
+  触发 SmartScreen「未知发布者」提示，见「代码签名与 SmartScreen」。
 - **不内置自动更新**：升级需手动下载新版本安装包覆盖安装。
 - 安装包已内置 Rust 核心；从源码运行且未编译 `hn_core` 时会自动降级为纯 Python 实现
   （功能一致、性能较低）。

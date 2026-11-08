@@ -28,6 +28,10 @@
   （推送 `v*` tag 时在 windows-latest 上自动构建并创建 GitHub Release）。
 - 新增 [RELEASING.md](RELEASING.md)（发布检查清单）、`.gitattributes`（换行 / 二进制归一）；
   README 增加「下载安装（普通用户）」，并重写「打包」章节为真实的 Inno Setup 构建流程。
+- **代码签名支持**：`build_release.ps1` 新增 `-CertThumbprint` / `-Pfx` / `-PfxPassword`，
+  先签 dist 里的 exe 再打安装包、最后签 Setup（保证安装后的程序也是签名版）；
+  `release.yml` 支持 `SIGNING_PFX_BASE64` / `SIGNING_PFX_PASSWORD` Secrets 自动签名；
+  README / RELEASING 增加自签名（本机/内部）与 OV/EV、Azure Trusted Signing、SignPath 说明。
 
 **应用身份**
 
