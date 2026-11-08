@@ -48,20 +48,33 @@ class FileOpsMixin:
     # ------------------------------------------------------------------ #
     # 阅读器支持格式的统一分发
     # ------------------------------------------------------------------ #
-    def open_path(self, path: str, activate: bool = True) -> Optional[DocumentTab]:
+    def open_path(self, path: str, activate: bool = True, quiet: bool = False,
+                  lazy_md: bool = False) -> Optional[DocumentTab]:
         """按后缀分发到对应打开入口：新增阅读格式只改这一处 + 一个 open_*。
 
         最近文件、会话恢复、重开标签、命令行参数都走这里，避免后缀判断散落各处。
+
+        quiet   —— 会话恢复用：不弹「批注不匹配」等模态框（弹窗会在窗口出现前
+                   阻塞启动）；恢复结束后由调用方汇总提示。
+        lazy_md —— 会话恢复用：非当前标签的 Markdown 只读入文本、不做耗时排版，
+                   等用户真正切到该标签时再渲染（见 _materialize_md）。
         """
         p = os.path.abspath(path)
         if p.lower().endswith(".pdf"):
-            return self.open_pdf(p, activate=activate)
+            return self.open_pdf(p, activate=activate, quiet=quiet)
         if is_markdown(p):
-            return self.open_markdown(p, activate=activate)
+            return self.open_markdown(p, activate=activate,
+                                      lazy=lazy_md and not activate)
         return self.open_note(p, activate=activate)
 
-    def open_markdown(self, path: str, activate: bool = True) -> Optional[DocumentTab]:
-        """打开 Markdown：只读渲染成标签；已打开过就切过去。"""
+    def open_markdown(self, path: str, activate: bool = True,
+                      lazy: bool = False) -> Optional[DocumentTab]:
+        """打开 Markdown：只读渲染成标签；已打开过就切过去。
+
+        lazy=True 时只读入文本并标记 md_pending，把耗时的排版（公式 / 表格 /
+        标题大纲）推迟到用户切到该标签时。会话恢复打开非当前标签时用它：
+        一篇公式密集的大讲义实测排版约 10s，放在启动阶段就是「点了很久没反应」。
+        """
         path = os.path.abspath(path)
         existing = self._find_tab_by_path(path)
         if existing is not None:
@@ -88,8 +101,12 @@ class FileOpsMixin:
         tab = DocumentTab(MD, view, os.path.basename(path))
         tab.path = path
         tab.md_text = text
-        tab.md_headings = parse_headings(text)
-        view.set_markdown(text, path)          # 先装载，_add_tab 同步界面时才有内容
+        if lazy and not activate:
+            # 只读文本、不排版：等用户切到该标签时由 _materialize_md() 真正渲染
+            tab.md_pending = True
+        else:
+            tab.md_headings = parse_headings(text)
+            view.set_markdown(text, path)      # 先装载，_add_tab 同步界面时才有内容
         self._add_tab(tab, activate=activate)
         self._refresh_tab_title(tab)
         frac = self.settings.md_read_state(path)
@@ -104,6 +121,36 @@ class FileOpsMixin:
                 f"已打开：{os.path.basename(path)}"
                 f"（Markdown，{len(tab.md_headings)} 个标题）", 4000)
         return tab
+
+    def _materialize_md(self, tab: Optional[DocumentTab]) -> None:
+        """把懒加载的 Markdown 标签真正排版出来（切换 / 激活时调用）。
+
+        会话恢复时如果立刻排版大 Markdown（公式 / 表格密集），实测单篇约 10s，
+        窗口会像卡死一样；现在先只读文本，等用户点开再排版，并给一个等待光标。
+        """
+        if tab is None or not getattr(tab, "md_pending", False) or not tab.is_md:
+            return
+        tab.md_pending = False
+        path = tab.path or ""
+        try:
+            text = tab.md_text or read_markdown(path)
+        except Exception as e:                          # noqa: BLE001 - 打不开就不排版
+            tab.md_text = ""
+            log_warning("markdown_materialize_failed", path=path, error=repr(e))
+            return
+        tab.md_text = text
+        tab.md_headings = parse_headings(text)
+        canvas = tab.canvas
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            self._status(f"正在排版：{tab.display_name()}…", 0)
+            QApplication.processEvents()                # 先让状态栏 / 等待光标画出来
+            canvas.set_markdown(text, path)
+        finally:
+            QApplication.restoreOverrideCursor()
+        self._refresh_tab_title(tab)
+        if tab is self._active:
+            self._sync_md_ui(tab)
 
     def open_note(self, path: str, activate: bool = True) -> Optional[DocumentTab]:
         """打开笔记：已打开过就切过去，否则在新标签里打开。"""
@@ -131,8 +178,13 @@ class FileOpsMixin:
             self.canvas.setFocus()
             self._update_window_title()
         return tab
-    def open_pdf(self, path: str, activate: bool = True) -> Optional[DocumentTab]:
-        """打开 PDF：已打开过就切过去，否则在新标签里打开。"""
+    def open_pdf(self, path: str, activate: bool = True,
+                 quiet: bool = False) -> Optional[DocumentTab]:
+        """打开 PDF：已打开过就切过去，否则在新标签里打开。
+
+        quiet=True 用于会话恢复：批注 MD5 不匹配时不弹模态框（会挡住启动），
+        改为记录到 _restore_annot_warnings，恢复结束后在状态栏汇总。
+        """
         path = os.path.abspath(path)
         existing = self._find_tab_by_path(path)
         if existing is not None:
@@ -152,7 +204,7 @@ class FileOpsMixin:
 
         tab = DocumentTab(PDF, self._make_canvas(), os.path.basename(path))
         try:
-            self._load_pdf_into_tab(tab, engine, path)
+            self._load_pdf_into_tab(tab, engine, path, quiet=quiet)
         except Exception as e:
             try:
                 engine.close()
@@ -221,7 +273,8 @@ class FileOpsMixin:
         if tab is self._active:
             self._sync_ui_from_tab(tab)
         self._update_undo_buttons()
-    def _load_pdf_into_tab(self, tab: DocumentTab, engine: PdfEngine, path: str) -> None:
+    def _load_pdf_into_tab(self, tab: DocumentTab, engine: PdfEngine, path: str,
+                           quiet: bool = False) -> None:
         """把一份 PDF 塞进标签（含批注恢复、阅读进度恢复、目录解析）。"""
         canvas = tab.canvas
         # 批注优先在 PDF 旁边；PDF 所在目录写不进去时，上次可能存到了兜底目录（annot_store）
@@ -241,9 +294,17 @@ class FileOpsMixin:
                 if loaded.pdf_md5 == md5:
                     annot = loaded
                 else:
-                    QMessageBox.warning(
-                        self, "批注不匹配",
-                        "找到同名 .annot 但 PDF 内容已变化（MD5 不一致），将忽略旧批注。")
+                    message = "找到同名 .annot 但 PDF 内容已变化（MD5 不一致），将忽略旧批注。"
+                    if quiet:
+                        # 会话恢复阶段不弹模态框：它会在窗口出现前阻塞启动，
+                        # 用户必须点掉才有反应。这里先记账，恢复完在状态栏提示。
+                        try:
+                            self._restore_annot_warnings.append(path)
+                        except Exception:
+                            pass
+                        log_warning("annot_md5_mismatch", path=path)
+                    else:
+                        QMessageBox.warning(self, "批注不匹配", message)
             except Exception:
                 annot = None
         if annot is None:

@@ -198,22 +198,36 @@ class WindowOpsMixin:
         except Exception:
             pass
     def _restore_session(self) -> bool:
-        """恢复上次退出时打开的标签。返回是否至少恢复了一个。"""
+        """恢复上次退出时打开的标签。返回是否至少恢复了一个。
+
+        启动性能与交互约定（2026-11）：
+        * 由 main.py 在窗口 show() 之后再调用（defer_session_restore）；
+        * PDF 的「批注不匹配」在恢复阶段不弹模态框（quiet=True）：弹窗会在窗口
+          出现前阻塞启动，用户必须点掉才有反应；恢复结束后在状态栏汇总提示；
+        * 非第一个标签的 Markdown 懒排版（lazy_md=True）：一篇公式 / 表格密集的
+          讲义实测排版约 10s，恢复时只为它建标签，等用户点开再排版。
+        """
         # 开局的空白标签只是「占位」（没有它工具栏建不起来），恢复成功就丢掉
         placeholder = self._active if len(self._tabs) == 1 else None
         try:
             items = self.settings.open_tabs() or []
         except Exception:
             return False
+        try:
+            self._restore_annot_warnings.clear()
+        except Exception:
+            pass
         opened = 0
-        for item in items:
+        for index, item in enumerate(items):
             if not isinstance(item, dict):
                 continue
             path = item.get("path")
             if not path or not os.path.exists(path):
                 continue
             try:
-                tab = self.open_path(path, activate=False)
+                # 只有「恢复后成为当前标签的第一个」立即排版；其余 Markdown 延迟
+                tab = self.open_path(path, activate=False, quiet=True,
+                                     lazy_md=index > 0)
             except Exception:
                 tab = None
             if tab is not None:
@@ -230,6 +244,15 @@ class WindowOpsMixin:
             if first is not None:
                 self._switch_to_tab(first)
         self._status(f"已恢复上次打开的 {opened} 个标签", 3000)
+        warnings = list(getattr(self, "_restore_annot_warnings", []) or [])
+        if warnings:
+            self._status(
+                f"已忽略 {len(warnings)} 份与当前文件不匹配的旧批注"
+                "（PDF 内容已变化，MD5 不一致）", 8000)
+            try:
+                self._restore_annot_warnings.clear()
+            except Exception:
+                pass
         return True
     def _confirm_save(self, tab: Optional[DocumentTab]) -> bool:
         """关闭标签/退出前询问是否保存。返回 False 表示用户取消。"""

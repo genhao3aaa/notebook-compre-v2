@@ -55,12 +55,17 @@ class MainWindow(UiBuildMixin, UiThemeMixin, TabOpsMixin, WindowOpsMixin, FileOp
     def __init__(self, theme_name: str = "light",
                  settings: Optional[AppSettings] = None,
                  restore_session: bool = True,
-                 restore_geometry: bool = True) -> None:
+                 restore_geometry: bool = True,
+                 defer_session_restore: bool = False) -> None:
         """创建一个「浏览器窗口」。
 
         `restore_session=False` / `restore_geometry=False` 供「把标签拖出来」产生的新窗口
         使用：新窗口只接管被拖走的那一个标签，不重复恢复上次会话，也不套用主窗口保存的
         几何（位置由鼠标落点决定）。
+
+        延迟恢复（defer_session_restore=True）供 main.py 启动路径使用：构造函数里不恢复
+        会话，等窗口 show() 之后再恢复——大 Markdown 的公式排版实测能到 10s，放在
+        show() 之前会让用户以为程序没启动。
         """
         super().__init__()
         self.settings = settings or AppSettings()
@@ -101,6 +106,8 @@ class MainWindow(UiBuildMixin, UiThemeMixin, TabOpsMixin, WindowOpsMixin, FileOp
         self._saver.finished.connect(self._on_save_finished)
         self._pending_saves: Dict[str, tuple] = {}
         self.last_save_error: str = ""
+        #: 会话恢复阶段遇到的「批注 MD5 不匹配」：不弹模态框，恢复完在状态栏汇总
+        self._restore_annot_warnings: List[str] = []
         #: 批注保存失败后「换位置重试」的记账（每个位置最多试一次，见 file_ops）
         self._annot_retry_done: bool = False
         self._annot_fallbacks: set = set()
@@ -113,8 +120,29 @@ class MainWindow(UiBuildMixin, UiThemeMixin, TabOpsMixin, WindowOpsMixin, FileOp
             self._restore_state()
             self._apply_initial_geometry()
 
-        if not (restore_session and self._restore_session()):
-            # 会话恢复失败（或这是「拖出来的」新窗口）时，初始空白标签继续用
+        #: 延迟恢复标记：main.py 在窗口 show() 之后调用 start_deferred_session_restore()
+        self._pending_session_restore = bool(restore_session and defer_session_restore)
+        if restore_session and not defer_session_restore and self._restore_session():
+            pass
+        else:
+            # 会话恢复失败（或这是「拖出来的」新窗口 / 延迟恢复）时，初始空白标签继续用
+            self._sync_ui_from_tab(self._active)
+        self._set_tool(self._tool_id)
+        self._update_undo_buttons()
+        if self.canvas is not None:
+            self.canvas.setFocus()
+
+    def start_deferred_session_restore(self) -> None:
+        """窗口显示后执行延迟的会话恢复（main.py 用 QTimer.singleShot(0) 调用）。
+
+        为什么延迟：会话恢复要打开 PDF / 排版 Markdown；公式密集的大 Markdown
+        实测单篇约 10s。在 show() 之前恢复，用户双击后长时间看不到窗口，
+        体感就是「点了没反应 / 启动很久」。
+        """
+        if not getattr(self, "_pending_session_restore", False):
+            return
+        self._pending_session_restore = False
+        if not self._restore_session():
             self._sync_ui_from_tab(self._active)
         self._set_tool(self._tool_id)
         self._update_undo_buttons()

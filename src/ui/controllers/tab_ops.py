@@ -45,6 +45,9 @@ class TabOpsMixin:
             self._save_read_state(old)
             self._trim_idle_cache(old)
         self._active = tab
+        # 懒加载的 Markdown：真正切到它时才排版（会话恢复时非当前标签延迟渲染，
+        # 见 file_ops._materialize_md）。必须在同步界面之前，否则界面会按空内容刷新。
+        self._materialize_md(tab)
         if self.tab_widget.currentWidget() is not tab.canvas:
             self.tab_widget.setCurrentWidget(tab.canvas)
         self._apply_tool_settings_to(tab.canvas)

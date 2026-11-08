@@ -178,8 +178,11 @@ def main() -> int:
 
     from src.ui.main_window import MainWindow
 
-    window = MainWindow()
+    # 先显示窗口、再恢复会话：公式密集的大 Markdown 排版可能耗时数秒，
+    # 若在 show() 之前恢复，用户双击后会长时间看不到窗口（像没启动 / 卡死）。
+    window = MainWindow(defer_session_restore=True)
     window.show()
+    QTimer.singleShot(0, window.start_deferred_session_restore)
 
     # 命令行里给的文件：等窗口显示后再开，界面才有正确的尺寸与状态栏。
     if requested:

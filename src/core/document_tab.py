@@ -76,6 +76,9 @@ class DocumentTab:
         #: Markdown 源文本与标题大纲（渲染视图本身就是 tab.canvas）
         self.md_text: str = ""
         self.md_headings: List = []
+        #: 懒加载标记：会话恢复时非当前标签的 Markdown 只读文本、不排版，
+        #: 等用户第一次切到它时才解析标题 / 渲染公式（见 file_ops._materialize_md）。
+        self.md_pending: bool = False
 
         # ---- 视图状态（缩放/偏移/旋转/阅读模式都由 canvas 持有，这里只存页码） ----
         self.page: int = 0
