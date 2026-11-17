@@ -11,7 +11,7 @@
   缩放/滚动位置、撤销栈全部原样保留，切回来还是刚才那一页那一个缩放比例；
 * 代价是内存（每个 canvas 一份渲染缓存），由主窗口的缓存预算统一回收。
 
-Markdown 标签的视图是 `MarkdownView`（QTextBrowser），它不是 PageCanvas，
+Markdown / HTML 标签的视图是 `MarkdownView`（QTextBrowser），它不是 PageCanvas，
 但实现了同名的最小兼容接口，所以标签的挂/切/关/搬运行路径保持统一。
 
 异步任务的「串台」防护
@@ -36,6 +36,10 @@ if TYPE_CHECKING:  # 仅用于类型提示，避免循环导入
 NOTE = "note"
 PDF = "pdf"
 MD = "md"
+HTML = "html"
+
+#: 只读文本阅读格式（Markdown / HTML）：连续富文本，没有「页」的概念
+TEXT_KINDS = (MD, HTML)
 
 
 def same_path(a: Optional[str], b: Optional[str]) -> bool:
@@ -60,25 +64,25 @@ class DocumentTab:
     def __init__(self, kind: str, canvas: "PageCanvas", title: str = "") -> None:
         DocumentTab._seq += 1
         self.tab_id: int = DocumentTab._seq
-        self.kind: str = kind if kind in (NOTE, PDF, MD) else NOTE
+        self.kind: str = kind if kind in (NOTE, PDF, MD, HTML) else NOTE
         self.canvas: Optional["PageCanvas"] = canvas
         self.title: str = title or "未命名笔记"
 
-        #: 源文件路径（笔记 *.note / PDF / Markdown）；未保存的笔记为 None
+        #: 源文件路径（笔记 *.note / PDF / Markdown / HTML）；未保存的笔记为 None
         self.path: Optional[str] = None
         self.dirty: bool = False
 
-        # ---- 文档对象（笔记 / PDF / Markdown 三选一） ----
+        # ---- 文档对象（笔记 / PDF / 只读文本 三选一） ----
         self.note_doc: Optional["NoteDocument"] = None
         self.pdf_engine: Optional["PdfEngine"] = None
         self.annot_doc: Optional["AnnotDocument"] = None
         self.annot_path: Optional[str] = None
-        #: Markdown 源文本与标题大纲（渲染视图本身就是 tab.canvas）
-        self.md_text: str = ""
-        self.md_headings: List = []
-        #: 懒加载标记：会话恢复时非当前标签的 Markdown 只读文本、不排版，
-        #: 等用户第一次切到它时才解析标题 / 渲染公式（见 file_ops._materialize_md）。
-        self.md_pending: bool = False
+        #: 只读文本的源文本与标题大纲（Markdown / HTML 共用；渲染视图就是 tab.canvas）
+        self.text_source: str = ""
+        self.text_headings: List = []
+        #: 懒加载标记：会话恢复时非当前标签的只读文本只读入内容、不排版，
+        #: 等用户第一次切到它时才解析标题 / 渲染公式（见 file_ops._materialize_text）。
+        self.text_pending: bool = False
 
         # ---- 视图状态（缩放/偏移/旋转/阅读模式都由 canvas 持有，这里只存页码） ----
         self.page: int = 0
@@ -123,11 +127,24 @@ class DocumentTab:
     def is_md(self) -> bool:
         return self.kind == MD
 
+    @property
+    def is_html(self) -> bool:
+        return self.kind == HTML
+
+    @property
+    def is_text(self) -> bool:
+        """只读文本阅读格式（Markdown / HTML）。"""
+        return self.kind in TEXT_KINDS
+
+    def text_label(self) -> str:
+        """给界面文案用的格式名（Markdown / HTML）。"""
+        return "HTML" if self.is_html else "Markdown"
+
     def page_count(self) -> int:
         try:
             if self.is_pdf:
                 return int(self.pdf_engine.page_count()) if self.pdf_engine else 1
-            if self.is_md:
+            if self.is_text:
                 return 1
             return int(self.note_doc.page_count()) if self.note_doc else 1
         except Exception:
@@ -146,8 +163,8 @@ class DocumentTab:
         return ("* " if self.dirty else "") + self.display_name()
 
     def tooltip(self) -> str:
-        if self.is_md:
-            kind = "Markdown 文档"
+        if self.is_text:
+            kind = f"{self.text_label()} 文档"
         elif self.is_pdf:
             kind = "PDF 批注"
         else:
@@ -206,8 +223,8 @@ class DocumentTab:
                 pass
         self.annot_doc = None
         self.note_doc = None
-        self.md_text = ""
-        self.md_headings = []
+        self.text_source = ""
+        self.text_headings = []
         self.search_hits = []
         self.outline = []
 

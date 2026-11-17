@@ -119,10 +119,10 @@ def test_lazy_markdown_restore_renders_on_switch(qapp, tmp_path):
     try:
         tab = win.open_markdown(str(md), activate=False, lazy=True)
         assert tab is not None
-        assert tab.md_pending is True, "非当前标签应延迟排版"
-        assert tab.md_text, "文本仍应读入（只是不排版）"
+        assert tab.text_pending is True, "非当前标签应延迟排版"
+        assert tab.text_source, "文本仍应读入（只是不排版）"
         win._switch_to_tab(tab)
-        assert tab.md_pending is False, "切换后应完成排版"
-        assert tab.md_headings, "切换后应解析出标题大纲"
+        assert tab.text_pending is False, "切换后应完成排版"
+        assert tab.text_headings, "切换后应解析出标题大纲"
     finally:
         _close(win)

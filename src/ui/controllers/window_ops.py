@@ -166,7 +166,7 @@ class WindowOpsMixin:
         """
         canvas = tab.canvas
         if canvas is None or not isinstance(canvas, PageCanvas):
-            return          # Markdown 视图没有连续阅读回调
+            return          # 只读文本视图没有连续阅读回调
         canvas.stroke_provider = lambda idx, t=tab: self._pdf_strokes_for(t, idx)
         canvas.on_page_request = lambda idx, t=tab: self._on_canvas_page_request(t, idx)
     def unbind_canvas_from_window(self, canvas: PageCanvas) -> None:
@@ -204,8 +204,8 @@ class WindowOpsMixin:
         * 由 main.py 在窗口 show() 之后再调用（defer_session_restore）；
         * PDF 的「批注不匹配」在恢复阶段不弹模态框（quiet=True）：弹窗会在窗口
           出现前阻塞启动，用户必须点掉才有反应；恢复结束后在状态栏汇总提示；
-        * 非第一个标签的 Markdown 懒排版（lazy_md=True）：一篇公式 / 表格密集的
-          讲义实测排版约 10s，恢复时只为它建标签，等用户点开再排版。
+        * 非第一个标签的 Markdown / HTML 懒排版（lazy_text=True）：一篇公式 / 表格
+          密集的讲义实测排版约 10s，恢复时只为它建标签，等用户点开再排版。
         """
         # 开局的空白标签只是「占位」（没有它工具栏建不起来），恢复成功就丢掉
         placeholder = self._active if len(self._tabs) == 1 else None
@@ -225,9 +225,9 @@ class WindowOpsMixin:
             if not path or not os.path.exists(path):
                 continue
             try:
-                # 只有「恢复后成为当前标签的第一个」立即排版；其余 Markdown 延迟
+                # 只有「恢复后成为当前标签的第一个」立即排版；其余只读文本延迟
                 tab = self.open_path(path, activate=False, quiet=True,
-                                     lazy_md=index > 0)
+                                     lazy_text=index > 0)
             except Exception:
                 tab = None
             if tab is not None:

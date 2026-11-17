@@ -7,6 +7,30 @@
 
 ---
 
+## 新增：HTML 阅读支持 + Markdown 卡顿写入路线图（2026-11）
+
+- **HTML 阅读**：新增 `.html` / `.htm` / `.xhtml` 只读标签，复用 Markdown 的
+  标题目录 / 全文搜索 / 阅读底色 / 阅读宽度 / 缩放 / 阅读进度 / 源码切换；
+  `<script>` 不执行、远程资源不主动联网，超过 16 MB 不渲染。
+- **标题大纲**：新增 `src/core/html_document.py`（纯 Python，标准库 `html.parser`），
+  正确处理嵌套标签、实体、`<br>`、未闭合标题与 `<script>` / `<style>` / `<template>`；
+  `<title>` 可作为文档标题。
+- **打开链路**：统一「打开文件…」、命令行、最近文件、会话恢复、标签图标、文档信息、
+  复制文本全部支持 HTML；本地 `.html` / `.md` 链接在新标签打开，页内锚点直接滚动。
+- **路线图**：把「Markdown 打开仍有明显卡顿」写入 `ROADMAP.md` §6/§7，附实测基线、
+  根因假设、分阶段方案与验收标准（本轮不修，优先交付 HTML）。
+- **菜单精简**：把「打开笔记 / 打开 PDF / 打开 Markdown / 打开 HTML」四个同类项合并为
+  单个「打开文件…」(`Ctrl+O`)，格式差异交给对话框里的类型筛选器；工具栏仍保留
+  「打开笔记」「打开 PDF」两个快捷按钮。
+- **内部命名**：标签的 `md_text / md_headings / md_pending` 改为
+  `text_source / text_headings / text_pending`（Markdown / HTML 共用），
+  阅读视图新增 `set_html()` / `document_kind()`。
+
+**验证**：新增 HTML 模型 / 渲染 / 主窗口集成测试；全量 pytest 419 项通过；ruff 全绿；
+pyright 0 error。
+
+---
+
 ## v5.3.1：启动性能修复 + 代码签名流水线（2026-11）
 
 - **修复启动卡顿**：双击后不再弹“批注不匹配”模态框；窗口约 1.2 秒出现，

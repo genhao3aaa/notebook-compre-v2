@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (QApplication, QColorDialog, QComboBox, QFileDialo
                                QTabBar, QTabWidget, QToolButton, QVBoxLayout,
                                QWidget)
 from src.core.annot_document import AnnotDocument
-from src.core.document_tab import DocumentTab, NOTE, PDF, MD, same_path
+from src.core.document_tab import DocumentTab, HTML, NOTE, PDF, MD, same_path
 from src.core.note_document import (BACKGROUND_TYPES, BG_BLANK, BG_COLOR_PRESETS,
                                     BG_LABELS, NoteDocument)
 from src.core.settings import AppSettings
@@ -51,7 +51,8 @@ from src.ui.window_registry import live_windows as _live_windows
 class MainWindow(UiBuildMixin, UiThemeMixin, TabOpsMixin, WindowOpsMixin, FileOpsMixin, ReadingOpsMixin, ToolOpsMixin, QMainWindow):
     CANVAS_SIGNALS = ("zoom_changed", "page_info_changed", "cursor_pos_changed",
                       "content_modified", "undo_state_changed", "tool_changed",
-                      "rotation_changed", "current_heading_changed")
+                      "rotation_changed", "current_heading_changed",
+                      "open_local_document_requested")
     def __init__(self, theme_name: str = "light",
                  settings: Optional[AppSettings] = None,
                  restore_session: bool = True,
@@ -162,7 +163,7 @@ class MainWindow(UiBuildMixin, UiThemeMixin, TabOpsMixin, WindowOpsMixin, FileOp
     @mode.setter
     def mode(self, value: str) -> None:
         t = self._active
-        if t is not None and value in (NOTE, PDF, MD):
+        if t is not None and value in (NOTE, PDF, MD, HTML):
             t.kind = value
     @property
     def note_doc(self) -> Optional[NoteDocument]:
@@ -289,7 +290,7 @@ class MainWindow(UiBuildMixin, UiThemeMixin, TabOpsMixin, WindowOpsMixin, FileOp
         避免后台标签的迟到回调把当前标签的状态栏/页码写乱。
         """
         if not isinstance(canvas, PageCanvas):
-            # MarkdownView 只有缩放信号，拖动标签换窗口后也要重新接上
+            # 只读文本视图：缩放 / 目录 / 本地链接信号（拖动标签换窗口后也要重接）
             zoom = getattr(canvas, "zoom_changed", None)
             if zoom is not None:
                 zoom.connect(lambda z: self._on_zoom(z))
@@ -297,6 +298,9 @@ class MainWindow(UiBuildMixin, UiThemeMixin, TabOpsMixin, WindowOpsMixin, FileOp
             if heading is not None:
                 heading.connect(
                     lambda i, c=canvas: self._on_md_heading_changed(c, i))
+            opener = getattr(canvas, "open_local_document_requested", None)
+            if opener is not None:
+                opener.connect(self.open_path)
             return
         canvas.zoom_changed.connect(lambda v, c=canvas: self._on_canvas_zoom(c, v))
         canvas.page_info_changed.connect(
@@ -317,20 +321,18 @@ class MainWindow(UiBuildMixin, UiThemeMixin, TabOpsMixin, WindowOpsMixin, FileOp
         canvas.set_canvas_bg(self.theme.canvas_bg(),
                             self.theme.colors().get("accent"))
         return canvas
-    def _make_markdown_view(self):
-        """新建一个 Markdown 只读阅读视图，套用当前主题。"""
+    def _make_reader_view(self):
+        """新建一个只读文本阅读视图（Markdown / HTML），套用当前主题。"""
         from src.ui.markdown_view import MarkdownView
 
         view = MarkdownView()
         view.apply_theme(self.theme.colors())
-        # 文档里的本地 .md 链接 → 在新标签打开，而不是丢给外部程序
-        view.open_markdown_requested.connect(self.open_markdown)
-        self._connect_canvas(view)          # 缩放信号 → 顶栏百分比（也负责换窗口重连）
+        self._connect_canvas(view)          # 缩放 / 目录 / 本地链接信号（也负责换窗口重连）
         return view
     def _apply_tool_settings_to(self, canvas: PageCanvas) -> None:
         """工具与笔的样式是「跟人走」的全局设置，切标签时推给目标画布。"""
         if not isinstance(canvas, PageCanvas):
-            return          # Markdown 视图不需要笔/工具样式
+            return          # 只读文本视图不需要笔/工具样式
         canvas.set_pen_color(self.settings.pen_color())
         canvas.set_pen_width(self.settings.pen_width())
         canvas.set_eraser_width(self.settings.eraser_width())

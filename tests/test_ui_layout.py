@@ -234,3 +234,23 @@ def test_statusbar_coord_hides_when_narrow(win):
     assert not win.lbl_coord.isVisible()
     resize(win, 1400)
     assert win.lbl_coord.isVisible()
+
+
+def test_file_menu_merges_all_open_entries(win):
+    """「打开笔记 / PDF / Markdown / HTML」合并成单个「打开文件…」。
+
+    用户反馈文件菜单里同类项太多（截图里连排四个「打开…」）。合并后只留一个入口，
+    格式差异交给对话框的类型筛选器；Ctrl+O 也从「只开笔记」改为「打开任意文件」，
+    因为这是 Windows 应用的通用约定。
+    """
+    menu = next(a.menu() for a in win.menuBar().actions()
+                if a.text().startswith("文件"))
+    texts = [a.text() for a in menu.actions() if not a.isSeparator()]
+    opens = [t for t in texts if t.startswith("打开")]
+    assert opens == ["打开文件…"], f"打开项应只剩一个入口，实际：{opens}"
+    assert win.act_open.shortcut().toString() == "Ctrl+O"
+    # 仍然能按格式筛选：统一对话框的过滤器里必须列出全部四类后缀
+    from src.ui.controllers.file_ops import ALL_FILES_FILTER
+
+    for token in ("*.note", "*.pdf", "*.md", "*.html"):
+        assert token in ALL_FILES_FILTER

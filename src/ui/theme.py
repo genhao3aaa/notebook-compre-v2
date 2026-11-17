@@ -604,6 +604,8 @@ _SVGS = {
     "tab_pdf": '<svg viewBox="0 0 24 24" fill="none" stroke="{{c}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4.5h9.5L19 9v10.5H5z"/><path d="M14 4.5V9h5"/><path d="M8.5 17v-4.2h1.6a1.4 1.4 0 0 1 0 2.8H8.5"/><path d="M14.2 17v-4.2h1.5a2.1 2.1 0 0 1 0 4.2z"/></svg>',
     # Markdown：文档 + 井号，和笔记/PDF 一眼区分
     "tab_md": '<svg viewBox="0 0 24 24" fill="none" stroke="{{c}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4.5h9.5L19 9v10.5H5z"/><path d="M14 4.5V9h5"/><path d="M9.5 12.2l-.7 5.3"/><path d="M13.2 12.2l-.7 5.3"/><path d="M8.1 14.1h5.6"/><path d="M7.8 16.1h5.6"/></svg>',
+    # HTML：文档 + 尖括号
+    "tab_html": '<svg viewBox="0 0 24 24" fill="none" stroke="{{c}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4.5h9.5L19 9v10.5H5z"/><path d="M14 4.5V9h5"/><path d="M10.4 12.6L8.2 14.8l2.2 2.2"/><path d="M13.6 12.6l2.2 2.2-2.2 2.2"/></svg>',
 }
 
 

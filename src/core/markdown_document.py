@@ -38,19 +38,30 @@ def is_markdown(path: Optional[str]) -> bool:
     return os.path.splitext(path)[1].lower() in MD_SUFFIXES
 
 
-def read_markdown(path: str) -> str:
-    """把 .md 读成文本；编码逐个探测，最后 latin-1 兜底。"""
+def read_text_file(path: str, max_bytes: int, label: str) -> str:
+    """读取纯文本文档（Markdown / HTML 共用）；编码逐个探测，最后 latin-1 兜底。
+
+    Windows 上的讲义常见 UTF-8（含 BOM）/ GBK / Big5；逐个尝试后仍失败才用
+    latin-1 兜底（保证不抛异常、不丢字节）。max_bytes 由调用方按各格式的渲染
+    成本决定，超限时抛 ValueError（上层会弹「文件过大」而不是卡死界面）。
+    """
     with open(path, "rb") as f:
         raw = f.read()
-    if len(raw) > MAX_MD_BYTES:
+    if len(raw) > max_bytes:
         raise ValueError(
-            f"Markdown 文件过大（{len(raw) // 1024 // 1024} MB），为避免卡死界面已跳过渲染")
+            f"{label} 文件过大（{len(raw) // 1024 // 1024} MB），"
+            "为避免卡死界面已跳过渲染")
     for enc in ("utf-8-sig", "utf-8", "gb18030", "big5"):
         try:
             return raw.decode(enc)
         except UnicodeDecodeError:
             continue
     return raw.decode("latin-1")
+
+
+def read_markdown(path: str) -> str:
+    """把 .md 读成文本；编码逐个探测，最后 latin-1 兜底。"""
+    return read_text_file(path, MAX_MD_BYTES, "Markdown")
 
 
 @dataclass

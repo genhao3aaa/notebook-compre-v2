@@ -82,8 +82,8 @@ class ReadingOpsMixin:
             self._schedule_read_state_save()
     def goto_page(self, index: int) -> None:
         tab = self._active
-        if tab is None or tab.is_md:
-            return          # Markdown 是整篇连续富文本，没有「页」可翻
+        if tab is None or tab.is_text:
+            return          # Markdown / HTML 是整篇连续富文本，没有「页」可翻
         if tab.is_note:
             if tab.note_doc is not None and 0 <= index < tab.note_doc.page_count():
                 self._show_page_note(index)
@@ -103,8 +103,8 @@ class ReadingOpsMixin:
         """切换单页 / 连续阅读。无 PDF 标签时只改默认值。"""
         mode = "continuous" if mode == "continuous" else "single"
         tab = self._active
-        if tab is not None and tab.is_md:
-            self._status("Markdown 为连续富文本，无需切换阅读模式", 2500)
+        if tab is not None and tab.is_text:
+            self._status(f"{tab.text_label()} 为连续富文本，无需切换阅读模式", 2500)
             return
         if tab is not None and tab.is_pdf and tab.canvas is not None:
             tab.canvas.set_read_mode(mode)
@@ -159,12 +159,12 @@ class ReadingOpsMixin:
         self._on_canvas_page_info(canvas, current, total, canvas.scale)
         if getattr(self, "thumbnails", None) is not None:
             self.thumbnails.set_current(current)
-        if tab.is_md:
+        if tab.is_text:
             # 连续富文本没有「页」和坐标；状态栏换成阅读态，别显示上一份 PDF 的页码
             if getattr(self, "lbl_page", None) is not None:
                 self.lbl_page.setVisible(False)
             if getattr(self, "lbl_tool", None) is not None:
-                self.lbl_tool.setText("Markdown 阅读 · 只读")
+                self.lbl_tool.setText(f"{tab.text_label()} 阅读 · 只读")
             if getattr(self, "lbl_coord", None) is not None:
                 self.lbl_coord.setVisible(False)
         else:
@@ -191,7 +191,7 @@ class ReadingOpsMixin:
         """
         if tab is None:
             return
-        if tab.is_md:
+        if tab.is_text:
             if not tab.path or tab.canvas is None:
                 return
             try:
@@ -317,8 +317,8 @@ class ReadingOpsMixin:
         # 先记下用户点的到底是哪一条：同一页可能有多个书签，跳转后按页码
         # 重新推算会高亮成「同页更靠前」的那条，看起来像点错了。
         clicked = self.outline_panel.current_item()
-        if tab is not None and tab.is_md:
-            # Markdown 目录条目的 top 借来存「第几个标题」
+        if tab is not None and tab.is_text:
+            # 只读文本目录条目的 top 借来存「第几个标题」
             if top is not None and tab.canvas is not None:
                 tab.canvas.scroll_to_heading(int(top))
             return
@@ -334,15 +334,15 @@ class ReadingOpsMixin:
             self.outline_panel.highlight_item(clicked)
 
     def _on_md_heading_changed(self, view, index: int) -> None:
-        """Markdown 滚动到新的标题：目录同步高亮（后台标签不抢界面）。"""
+        """只读文本滚动到新的标题：目录同步高亮（后台标签不抢界面）。"""
         tab = self._tab_of_canvas(view)
-        if tab is None or not tab.is_md or tab is not self._active:
+        if tab is None or not tab.is_text or tab is not self._active:
             return
         self.outline_panel.set_current_heading(index)
     def _focus_search(self) -> None:
         tab = self._active
-        if tab is None or not (tab.is_pdf or tab.is_md):
-            self._status("搜索功能需要打开 PDF 或 Markdown 文档", 3000)
+        if tab is None or not (tab.is_pdf or tab.is_text):
+            self._status("搜索功能需要打开 PDF、Markdown 或 HTML 文档", 3000)
             return
         if not self.sidebar.isVisible():
             self.sidebar.setVisible(True)
@@ -352,7 +352,7 @@ class ReadingOpsMixin:
         tab = self._active
         if tab is None:
             return
-        if tab.is_md:
+        if tab.is_text:
             # 富文本体量小，直接在渲染文档里同步查找，不必起后台线程
             view = tab.canvas
             hits = view.find_all(query, case_sensitive, whole_word) if view else []
@@ -415,7 +415,7 @@ class ReadingOpsMixin:
         index %= n
         tab.search_index = index
         hit = tab.search_hits[index]
-        if tab.is_md:
+        if tab.is_text:
             view = tab.canvas
             if view is not None:
                 view.focus_hit(hit.position)
@@ -434,7 +434,7 @@ class ReadingOpsMixin:
         tab = self._active
         if tab is None or self.canvas is None:
             return
-        if tab.is_md:
+        if tab.is_text:
             if not tab.search_hits:
                 self.canvas.clear_search()
             else:
@@ -516,15 +516,16 @@ class ReadingOpsMixin:
         self.page_total_label.setText(f"/ {total}")
 
     def _toggle_md_view_mode(self) -> None:
-        """在「渲染阅读」与「Markdown 源码」之间切换（仅 Markdown 标签可用）。"""
+        """在「渲染阅读」与「Markdown / HTML 源码」之间切换（仅只读文本标签可用）。"""
         tab = self._active
-        if tab is None or not tab.is_md or tab.canvas is None:
-            self._status("只有 Markdown 标签可以切换源码 / 渲染视图", 3000)
+        if tab is None or not tab.is_text or tab.canvas is None:
+            self._status("只有 Markdown / HTML 标签可以切换源码 / 渲染视图", 3000)
             return
         mode = "source" if tab.canvas.view_mode() == "render" else "render"
         tab.canvas.set_view_mode(mode)
         act = getattr(self, "act_md_source", None)
         if act is not None:
             act.setChecked(mode == "source")
-        self._status("已切换到 Markdown 源码" if mode == "source"
+        label = tab.text_label()
+        self._status(f"已切换到 {label} 源码" if mode == "source"
                      else "已返回渲染阅读", 2500)

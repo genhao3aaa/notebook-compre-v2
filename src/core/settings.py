@@ -644,10 +644,10 @@ class AppSettings:
         self._set_json_map("note_read_state", data, MAX_PDF_STATE)
 
     # ------------------------------------------------------------------ #
-    # Markdown 阅读位置（整篇滚动比例 0~1）
+    # 只读文本阅读位置（Markdown / HTML 共用；整篇滚动比例 0~1）
     # ------------------------------------------------------------------ #
     def md_read_state(self, path: str) -> float:
-        """某份 Markdown 上次读到的滚动比例；没有记录返回 0（顶部）。"""
+        """某份只读文本文档上次读到的滚动比例；没有记录返回 0（顶部）。"""
         data = self._json_map("md_read_state")
         try:
             return max(0.0, min(1.0, float(data.get(_doc_key(path), 0.0))))
@@ -680,8 +680,8 @@ class AppSettings:
         for item in data:
             if isinstance(item, dict) and isinstance(item.get("path"), str):
                 kind = item.get("kind")
-                out.append({"kind": kind if kind in ("note", "pdf", "md") else "note",
-                            "path": item["path"]})
+                out.append({"kind": kind if kind in ("note", "pdf", "md", "html")
+                            else "note", "path": item["path"]})
         return out
 
     def set_open_tabs(self, items: list) -> None:

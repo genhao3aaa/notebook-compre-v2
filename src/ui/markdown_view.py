@@ -1,14 +1,17 @@
-"""Markdown 只读阅读视图（基于 QTextBrowser）。
+"""Markdown / HTML 只读阅读视图（基于 QTextBrowser）。
+
+两种格式只是「导入方式」不同（`setMarkdown` / `setHtml`），阅读底色、阅读栏
+宽度、缩放、搜索高亮、目录同步、滚动位置记忆全部共用同一套实现。
 
 设计要点
 --------
-* **零新依赖**：用 PySide6 自带 QTextDocument 的 Markdown 解析器
+* **零新依赖**：用 PySide6 自带 QTextDocument 的 Markdown / HTML 导入器
   （标题 / 列表 / 表格 / 引用 / 代码块 / 链接 / 图片 / 粗斜体）。
 * **与 PageCanvas duck-type 兼容**：MainWindow 里大量通用代码会无差别地往
   「当前标签的 canvas」发消息（切标签、主题刷新、工具样式、资源释放、
-  多窗口搬运）。MarkdownView 实现同名的最小桩，让这些路径对 Markdown
-  标签安全且无副作用；真正的业务分流（保存 / 翻页 / 批注 / 搜索）在
-  controllers 里按 `tab.is_md` 显式处理。
+  多窗口搬运）。本视图实现同名的最小桩，让这些路径对只读文本标签安全且
+  无副作用；真正的业务分流（保存 / 翻页 / 批注 / 搜索）在 controllers 里按
+  `tab.is_text` / `tab.is_pdf` 显式处理。
 * **复用现有侧栏**：标题大纲接「目录」、全文检索接「搜索」，不另起面板。
 """
 from __future__ import annotations
@@ -17,6 +20,7 @@ import bisect
 import os
 import re
 from typing import List, Optional, Sequence
+from urllib.parse import unquote
 
 from PySide6.QtCore import (QEvent, QMimeData, QPoint, QRectF, QTimer, Qt,
                            QUrl, Signal)
@@ -28,8 +32,8 @@ from PySide6.QtGui import (QBrush, QColor, QDesktopServices, QFont,
 from PySide6.QtWidgets import QFrame, QTextBrowser, QTextEdit, QWidget
 
 from src.core.colors import ink_contrast_color, is_dark
-from src.core.markdown_document import (MdHeading, MdSearchHit, is_markdown,
-                                        parse_headings)
+from src.core.html_document import is_html, parse_html_headings
+from src.core.markdown_document import MdSearchHit, is_markdown, parse_headings
 from src.core.math_formula import mask_math
 from src.ui.math_render import (DISPLAY_PROP, MATH_OBJECT_TYPE, SOURCE_PROP,
                                 MathObjectHandler)
@@ -93,10 +97,10 @@ class _BoundaryOverlay(QWidget):
 
 
 class MarkdownView(QTextBrowser):
-    """渲染 Markdown 的只读富文本视图。"""
+    """渲染 Markdown / HTML 的只读富文本视图。"""
 
-    #: 点击了指向另一份本地 .md 的链接 → 让主窗口在新标签打开
-    open_markdown_requested = Signal(str)
+    #: 点击了指向另一份本地阅读器格式（.md / .html）的链接 → 主窗口在新标签打开
+    open_local_document_requested = Signal(str)
     #: 缩放比例变化（Ctrl+滚轮 / 工具栏）；主窗口用它同步顶栏数字
     zoom_changed = Signal(float)
     #: 拖拽左右留白后请求的新阅读宽度（px；0 = 自动铺满）
@@ -135,11 +139,12 @@ class MarkdownView(QTextBrowser):
         # 纵向滚动条出现/消失会改变视口宽度（不触发 resizeEvent）
         self.verticalScrollBar().rangeChanged.connect(self._on_vscroll_range)
 
+        self._kind: str = "markdown"       # markdown / html
         self._text: str = ""
         self._masked: str = ""
         self._segments: list = []
         self._path: str = ""
-        self._headings: List[MdHeading] = []
+        self._headings: List = []
         # 目录高亮：视口顶部 → 当前标题（缓存标题块位置，避免滚动时整篇扫描）
         self._heading_pairs: List[tuple] = []   # [(标题序号, 文档位置)]
         self._heading_cache_key: tuple = (-1, -1, -1)
@@ -402,11 +407,26 @@ class MarkdownView(QTextBrowser):
     # 文档装载 / 模式
     # ------------------------------------------------------------------ #
     def set_markdown(self, text: str, path: str = "") -> None:
+        """装载 Markdown：预扫描公式 → 修 Qt 导入器的已知缺陷 → 渲染。"""
+        self._load(text, path, "markdown")
+
+    def set_html(self, text: str, path: str = "") -> None:
+        """装载 HTML：交给 Qt 的 HTML4/CSS2 子集导入器（不执行脚本）。"""
+        self._load(text, path, "html")
+
+    def _load(self, text: str, path: str, kind: str) -> None:
+        self._kind = "html" if kind == "html" else "markdown"
         self._text = text or ""
-        self._masked, self._segments = mask_math(self._text)
-        self._masked = self._prepare_markdown(self._masked)
+        if self._kind == "html":
+            # HTML 不做 LaTeX 预扫描：$ 在 HTML 里通常就是普通字符，
+            # 把公式占位符塞进标签文本反而会破坏导入。
+            self._masked, self._segments = "", []
+            self._headings = parse_html_headings(self._text)
+        else:
+            self._masked, self._segments = mask_math(self._text)
+            self._masked = self._prepare_markdown(self._masked)
+            self._headings = parse_headings(self._text)
         self._path = path or ""
-        self._headings = parse_headings(self._text)
         self._heading_index = -2
         self._heading_cache_key = (-1, -1)
         self._hits = []
@@ -419,13 +439,18 @@ class MarkdownView(QTextBrowser):
                 QUrl.fromLocalFile(os.path.abspath(self._path)).toString())
         self._rerender(keep_frac=False)
 
+    def document_kind(self) -> str:
+        """当前装载的格式：markdown / html。"""
+        return self._kind
+
     def source_text(self) -> str:
         return self._text
 
     def path(self) -> str:
         return self._path
 
-    def headings(self) -> List[MdHeading]:
+    def headings(self) -> List:
+        """标题大纲（Markdown 的 MdHeading / HTML 的 HtmlHeading，字段一致）。"""
         return list(self._headings)
 
     def view_mode(self) -> str:
@@ -457,16 +482,25 @@ class MarkdownView(QTextBrowser):
             cur.mergeCharFormat(fmt)
         else:
             self.setFont(self._base_font)
-            self.setMarkdown(self._masked or self._text)
-            self._apply_zoom_step()
-            self._fix_unparsed_bold()
-            self._remove_markdown_markers()
-            self._embed_math()
-            self._restyle_document()
-            self._collect_code_fonts()
-            self._apply_code_zoom()
+            if self._kind == "html":
+                # QTextDocument 支持 HTML4/CSS2 子集；脚本不会执行，远程资源也
+                # 不会主动联网（只有同目录相对路径的图片会被 setSearchPaths 解析）。
+                self.setHtml(self._text)
+                self._apply_zoom_step()
+                self._restyle_document()
+                self._collect_code_fonts()
+                self._apply_code_zoom()
+            else:
+                self.setMarkdown(self._masked or self._text)
+                self._apply_zoom_step()
+                self._fix_unparsed_bold()
+                self._remove_markdown_markers()
+                self._embed_math()
+                self._restyle_document()
+                self._collect_code_fonts()
+                self._apply_code_zoom()
         self.setExtraSelections([])
-        self._apply_text_width()          # setMarkdown 会把文档宽度重置回控件宽度
+        self._apply_text_width()          # setMarkdown / setHtml 会把文档宽度重置回控件宽度
         self._apply_hits_highlight()
         self._heading_timer.start()       # 重排后视口顶部所在的标题可能变了
 
@@ -476,7 +510,7 @@ class MarkdownView(QTextBrowser):
     def apply_theme(self, colors: dict) -> None:
         """由主窗口下发 ThemeManager.colors()。
 
-        换主题只换配色：不重新解析 Markdown、不重排公式，滚动位置也完全不动。
+        换主题只换配色：不重新解析 Markdown / HTML、不重排公式，滚动位置也完全不动。
         （旧实现每次切主题都重新 _rerender() 一遍，长文档要等好几秒。）
         """
         self._apply_stylesheet(colors or {})
@@ -489,7 +523,7 @@ class MarkdownView(QTextBrowser):
         self.canvas_bg = color
 
     def set_reading_bg(self, color: str) -> None:
-        """设置 Markdown 阅读底色；传空字符串恢复「跟随主题」。"""
+        """设置只读文本阅读底色（Markdown / HTML 共用）；空字符串恢复跟随主题。"""
         col = QColor(color) if color else QColor()
         self._reading_bg = col.name() if col.isValid() else ""
         self._apply_stylesheet(self._colors)
@@ -497,7 +531,7 @@ class MarkdownView(QTextBrowser):
         self._apply_hits_highlight()      # 搜索命中前景色按新底色重算
 
     def _restyle_document(self) -> None:
-        """把主题配色写进 Markdown 导入后的文档格式。
+        """把主题配色写进导入后的文档格式（Markdown / HTML 共用）。
 
         Qt 的 Markdown 导入器不读 QTextDocument.defaultStyleSheet：链接固定是
         系统蓝、代码块没有底色、引用没有灰字、表格没有边框。换深色纸时这些都会
@@ -982,8 +1016,11 @@ class MarkdownView(QTextBrowser):
 
     @staticmethod
     def _rendered_heading_text(text: str) -> str:
-        text = text.replace("\u200b", "").strip()
-        return re.sub("\ue000\\d+\ue001", "\ufffc", text)
+        # <br> 在 QTextBlock 里是 U+2029；HTML 标题解析出来的是空格，
+        # 不统一就会让「目录高亮 / 点击跳转」找不到这一条。
+        text = (text.replace("\u200b", "")
+                .replace("\u2029", " ").replace("\u2028", " "))
+        return re.sub("\ue000\\d+\ue001", "\ufffc", text).strip()
 
     def _heading_layout(self) -> List[tuple]:
         """[(目录序号, 标题块位置)]：按层级 + 文本对齐。
@@ -995,7 +1032,9 @@ class MarkdownView(QTextBrowser):
         doc = self.document()
         key = (doc.characterCount(), doc.blockCount(), len(self._headings))
         if key != self._heading_cache_key:
-            patterns = [(h.level, self._heading_pattern(h.title))
+            patterns = [(h.level,
+                         self._heading_pattern(h.title) if self._kind == "markdown"
+                         else h.title.strip())
                         for h in self._headings]
             pairs: List[tuple] = []
             hidx = 0
@@ -1189,17 +1228,27 @@ class MarkdownView(QTextBrowser):
     # ------------------------------------------------------------------ #
     def _on_anchor(self, url: QUrl) -> None:
         if url.toString().startswith("#"):
-            return  # 文档内锚点：Qt 的 Markdown 不生成对应目标，忽略
+            # HTML 文档里的页内锚点（<a href="#sec1">）可以直接滚过去；
+            # Markdown 导入器不生成锚点目标，旧行为保持不变（忽略）。
+            anchor = url.toString()[1:]
+            if self._kind == "html" and anchor:
+                self.scrollToAnchor(anchor)
+            return
         if url.isLocalFile():
             path = url.toLocalFile()
         elif not url.scheme():
-            path = url.path()
+            # 相对链接以**文档所在目录**为基准：HTML 讲义里的 page2.html /
+            # img/fig1.png 很常见，按进程 CWD 解析会打开错误位置。
+            raw = unquote(url.path())
+            base = os.path.dirname(os.path.abspath(self._path)) if self._path else ""
+            path = (os.path.join(base, raw)
+                    if base and not os.path.isabs(raw) else raw)
         else:
             QDesktopServices.openUrl(url)
             return
         path = os.path.abspath(path)
-        if is_markdown(path) and os.path.isfile(path):
-            self.open_markdown_requested.emit(path)
+        if (is_markdown(path) or is_html(path)) and os.path.isfile(path):
+            self.open_local_document_requested.emit(path)
         else:
             QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 

@@ -20,7 +20,7 @@ from src.core.colors import (DEFAULT_HIGHLIGHTER_COLOR, DEFAULT_PEN_COLOR,
                              PEN_COLOR_PRESETS, argb_hex, blend_over,
                              ink_contrast_color, normalize_hex, parse_rgba,
                              with_alpha)
-from src.core.document_tab import DocumentTab, MD, NOTE, PDF, same_path
+from src.core.document_tab import DocumentTab, HTML, MD, NOTE, PDF, same_path
 from src.core.note_document import (BACKGROUND_TYPES, BG_BLANK, BG_COLOR_PRESETS,
                                     BG_LABELS, NoteDocument)
 from src.ui.layout_constants import APP_TITLE, COORD_LABEL_MIN_W, IDLE_CACHE_PAGES, MAX_RESTORED_TABS, SIDEBAR_AUTO_HIDE_W, SIDEBAR_MAX_W, SIDEBAR_MIN_W, WINDOW_MIN_H, WINDOW_MIN_W
@@ -96,7 +96,7 @@ class UiThemeMixin:
         for t in self._tabs:
             if t.canvas is None:
                 continue
-            if t.is_md:
+            if t.is_text:
                 # 只换配色（MarkdownView.apply_theme 不再重解析文档）
                 t.canvas.apply_theme(self.theme.colors())
             else:
@@ -109,7 +109,7 @@ class UiThemeMixin:
         if hasattr(self, "_refresh_recent"):
             self._refresh_recent()      # 最近文件图标按新主题颜色重画
         active = getattr(self, "_active", None)
-        if active is not None and active.is_md and not self.settings.md_bg_color():
+        if active is not None and active.is_text and not self.settings.md_bg_color():
             # 跟随主题模式：切主题后色块要跟着变（否则还停在上一个主题的纸色）
             self._set_bg_swatch(self.theme.colors().get("card", "#ffffff"))
         self._refresh_theme_actions()
@@ -163,8 +163,8 @@ class UiThemeMixin:
             self._sidebar_user_hidden = True
     def _show_bg_color_menu(self) -> None:
         menu = QMenu(self)
-        if self.mode == MD:
-            # Markdown 是连续富文本：只有「底色」有意义，没有网格 / 横线
+        if self.mode in (MD, HTML):
+            # 只读文本是连续富文本：只有「底色」有意义，没有网格 / 横线
             follow = QAction("跟随主题", self)
             follow.setCheckable(True)
             follow.setChecked(not self.settings.md_bg_color())
@@ -183,7 +183,7 @@ class UiThemeMixin:
             menu.exec(self.btn_bg_color.mapToGlobal(self.btn_bg_color.rect().bottomLeft()))
             return
         if self.mode != NOTE:
-            self._status("背景色仅适用于手写笔记本与 Markdown 阅读（PDF 请导出后修改）", 3500)
+            self._status("背景色仅适用于手写笔记本与 Markdown / HTML 阅读（PDF 请导出后修改）", 3500)
             return
         for hexc, name in BG_COLOR_PRESETS:
             act = QAction(f"■  {name}", self)
@@ -196,20 +196,21 @@ class UiThemeMixin:
         menu.addAction(custom)
         menu.exec(self.btn_bg_color.mapToGlobal(self.btn_bg_color.rect().bottomLeft()))
     def _apply_bg_color(self, color: str) -> None:
-        if self.mode == MD:
+        if self.mode in (MD, HTML):
             color = normalize_hex(color) if color else ""
             self.settings.set_md_bg_color(color)
-            # 底色是全局阅读偏好：其他窗口已经打开的 Markdown 标签也要立即换
+            # 底色是全局阅读偏好：其他窗口已经打开的 Markdown / HTML 标签也要立即换
             for win in live_windows(exclude=self) + [self]:
                 for tab in getattr(win, "_tabs", []):
-                    if tab.is_md and tab.canvas is not None:
+                    if tab.is_text and tab.canvas is not None:
                         tab.canvas.set_reading_bg(color)
                 active = getattr(win, "_active", None)
-                if active is not None and active.is_md:
+                if active is not None and active.is_text:
                     win._set_bg_swatch(
                         color or win.theme.colors().get("card", "#ffffff"))
-            self._status("Markdown 阅读底色已更新" if color
-                         else "Markdown 阅读底色已恢复跟随主题", 2500)
+            label = self.tab.text_label() if self.tab is not None else "Markdown"
+            self._status(f"{label} 阅读底色已更新" if color
+                         else f"{label} 阅读底色已恢复跟随主题", 2500)
             return
         color = normalize_hex(color)
         if self.note_doc is None:
@@ -222,10 +223,11 @@ class UiThemeMixin:
         self.thumbnails.set_current(self.current_page)
         self.mark_dirty()
     def _choose_bg_color(self) -> None:
-        if self.mode == MD:
+        if self.mode in (MD, HTML):
             cur = self.settings.md_bg_color() or self.theme.colors().get("card", "#ffffff")
+            label = self.tab.text_label() if self.tab is not None else "Markdown"
             color = QColorDialog.getColor(QColor(cur), self,
-                                          "选择 Markdown 阅读底色")
+                                          f"选择 {label} 阅读底色")
             if color.isValid():
                 self._apply_bg_color(color.name())
             return

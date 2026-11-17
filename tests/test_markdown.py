@@ -137,8 +137,8 @@ def test_open_markdown_tab(qapp, tmp_path):
     try:
         tab = w.open_markdown(str(p))
         assert tab is not None and tab.kind == "md" and w.mode == "md"
-        assert tab.md_text.startswith("# 标题")
-        assert len(tab.md_headings) == 2
+        assert tab.text_source.startswith("# 标题")
+        assert len(tab.text_headings) == 2
         assert w.side_title.text() == "Markdown 阅读"
         assert w.outline_panel.count_label.text() == "共 2 个标题"
         # 同一份文件重复打开复用已有标签

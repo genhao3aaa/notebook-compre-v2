@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QApplication, QColorDialog, QComboBox, QFileDialo
                                QPushButton, QSlider, QSpinBox, QSplitter, QStatusBar,
                                QTabBar, QTabWidget, QToolButton, QVBoxLayout,
                                QWidget)
-from src.core.document_tab import DocumentTab, NOTE, PDF, MD, same_path
+from src.core.document_tab import DocumentTab, HTML, MD, NOTE, PDF, same_path
 from src.core.note_document import (BACKGROUND_TYPES, BG_BLANK, BG_COLOR_PRESETS,
                                     BG_LABELS, NoteDocument)
 from src.render.pdf_engine import OutlineEntry
@@ -45,9 +45,9 @@ class TabOpsMixin:
             self._save_read_state(old)
             self._trim_idle_cache(old)
         self._active = tab
-        # 懒加载的 Markdown：真正切到它时才排版（会话恢复时非当前标签延迟渲染，
-        # 见 file_ops._materialize_md）。必须在同步界面之前，否则界面会按空内容刷新。
-        self._materialize_md(tab)
+        # 懒加载的只读文本：真正切到它时才排版（会话恢复时非当前标签延迟渲染，
+        # 见 file_ops._materialize_text）。必须在同步界面之前，否则界面会按空内容刷新。
+        self._materialize_text(tab)
         if self.tab_widget.currentWidget() is not tab.canvas:
             self.tab_widget.setCurrentWidget(tab.canvas)
         self._apply_tool_settings_to(tab.canvas)
@@ -66,7 +66,7 @@ class TabOpsMixin:
         if getattr(self, "page_spin", None) is None:
             return
         # 文档还没装载完（新建标签的瞬间）就先不刷界面，装载完会再同步一次
-        if not tab.is_md and tab.note_doc is None and tab.pdf_engine is None:
+        if not tab.is_text and tab.note_doc is None and tab.pdf_engine is None:
             return
         if tab.is_pdf:
             tab.page = canvas.current_index
@@ -76,8 +76,8 @@ class TabOpsMixin:
             canvas.current_index = int(tab.page)
             canvas.total_pages = max(1, tab.page_count())
 
-        if tab.is_md:
-            self._sync_md_ui(tab)
+        if tab.is_text:
+            self._sync_reader_ui(tab)
         elif tab.is_note and tab.note_doc is not None:
             self.side_title.setText("笔记本")
             self.side_tabs.setTabEnabled(0, True)
@@ -157,11 +157,11 @@ class TabOpsMixin:
         self.md_width_value.setText("铺满" if auto else str(width))
 
     def _on_md_width_max_changed(self, view, maximum: int) -> None:
-        if self.mode == MD and self.canvas is view:
+        if self.mode in (MD, HTML) and self.canvas is view:
             self._refresh_md_width_ui(view)
 
     def _on_md_width_dragged(self, view, width: int) -> None:
-        """拖拽阅读区边界：持久化并同步其他 Markdown 标签 / 工具栏数值。"""
+        """拖拽阅读区边界：持久化并同步其他只读文本标签 / 工具栏数值。"""
         self.settings.set_md_column_width(width)
         maximum = max(520, view._max_reading_width())
         if getattr(self, "md_width_slider", None) is not None:
@@ -171,23 +171,23 @@ class TabOpsMixin:
             self.md_width_slider.blockSignals(False)
             self.md_width_value.setText("铺满" if width <= 0 else str(width))
         for tab in self._tabs:
-            if tab.is_md and tab.canvas is not None and tab.canvas is not view:
+            if tab.is_text and tab.canvas is not None and tab.canvas is not view:
                 tab.canvas.set_reading_width(width)
 
     def _on_md_width_changed(self, value: int) -> None:
-        """工具栏「宽度」滑块：只作用于 Markdown 阅读栏。"""
+        """工具栏「宽度」滑块：只作用于 Markdown / HTML 阅读栏。"""
         maximum = self.md_width_slider.maximum()
         width = 0 if value >= maximum else value
         self.settings.set_md_column_width(width)
         if getattr(self, "md_width_value", None) is not None:
             self.md_width_value.setText("铺满" if width == 0 else str(width))
         for tab in self._tabs:
-            if tab.is_md and tab.canvas is not None:
+            if tab.is_text and tab.canvas is not None:
                 tab.canvas.set_reading_width(width)
 
     def _sync_mode_toolbar(self) -> None:
-        """按文档类型切换顶栏：读 Markdown 时不摆画笔、翻页和旋转。"""
-        md = self.mode == MD
+        """按文档类型切换顶栏：读 Markdown / HTML 时不摆画笔、翻页和旋转。"""
+        md = self.mode in (MD, HTML)
         pdf = self.mode == PDF
         top = getattr(self, "topbar", None)
 
@@ -221,23 +221,24 @@ class TabOpsMixin:
             top.set_separators_visible(not md)
             top.updateGeometry()       # 显隐后让响应式工具栏重新算一次溢出
 
-    def _md_outline_entries(self, tab: DocumentTab) -> List[OutlineEntry]:
-        """Markdown 标题 → 目录条目；`top` 借来存「第几个标题」供跳转用。"""
+    def _text_outline_entries(self, tab: DocumentTab) -> List[OutlineEntry]:
+        """只读文本标题 → 目录条目；`top` 借来存「第几个标题」供跳转用。"""
         return [OutlineEntry(level=h.level, title=h.title, page=0, top=float(i))
-                for i, h in enumerate(tab.md_headings)]
+                for i, h in enumerate(tab.text_headings)]
 
-    def _sync_md_ui(self, tab: DocumentTab) -> None:
-        """Markdown 标签：复用「目录」显示标题大纲、「搜索」做全文检索。"""
-        self.side_title.setText("Markdown 阅读")
+    def _sync_reader_ui(self, tab: DocumentTab) -> None:
+        """Markdown / HTML 标签：复用「目录」显示标题大纲、「搜索」做全文检索。"""
+        label = tab.text_label()
+        self.side_title.setText(f"{label} 阅读")
         # 富文本没有「页」的概念，缩略图页签让位给目录 / 搜索
         self.side_tabs.setTabEnabled(0, False)
         self.side_tabs.setTabEnabled(1, True)
         self.side_tabs.setTabEnabled(2, True)
         if self.side_tabs.currentIndex() == 0:
-            self.side_tabs.setCurrentIndex(1)      # Markdown 没有页，默认看标题目录
+            self.side_tabs.setCurrentIndex(1)      # 没有页，默认看标题目录
         self.combo_bg.setEnabled(False)       # 连续富文本没有网格 / 横线可选
         self.btn_bg_color.setEnabled(True)     # 但可以单独换阅读底色
-        self.btn_bg_color.setToolTip("Markdown 阅读底色")
+        self.btn_bg_color.setToolTip(f"{label} 阅读底色")
         self._set_bg_swatch(self.settings.md_bg_color()
                             or self.theme.colors().get("card", "#ffffff"))
         self._refresh_md_width_ui(tab.canvas)
@@ -247,21 +248,23 @@ class TabOpsMixin:
         self.btn_del_page.setVisible(False)
         self.btn_search.setEnabled(True)
         self.btn_save_tb.setEnabled(False)     # 只读文档：保存按钮不假装可用
-        self.lbl_tool.setText("Markdown 阅读 · 只读")
+        self.lbl_tool.setText(f"{label} 阅读 · 只读")
         self.btn_undo_tb.setEnabled(False)
         self.btn_redo_tb.setEnabled(False)
         self.act_undo.setEnabled(False)
         self.act_redo.setEnabled(False)
-        if tab.md_headings:
-            self.outline_panel.set_outline(self._md_outline_entries(tab),
+        if tab.text_headings:
+            self.outline_panel.set_outline(self._text_outline_entries(tab),
                                            noun="标题", show_page=False,
-                                           math=True)
-            # 切回 Markdown 标签时，按当前滚动位置恢复目录高亮（不是永远第一项）
+                                           math=tab.is_md)
+            # 切回标签时，按当前滚动位置恢复目录高亮（不是永远第一项）
             self.outline_panel.set_current_heading(
                 tab.canvas.current_heading_index() if tab.canvas is not None else -1)
         else:
-            self.outline_panel.set_unavailable(
-                "该 Markdown 没有标题\n（用 # 标记标题即可生成目录）")
+            hint = ("该 Markdown 没有标题\n（用 # 标记标题即可生成目录）"
+                    if tab.is_md else
+                    "该 HTML 没有标题\n（用 <h1>~<h6> 标记标题即可生成目录）")
+            self.outline_panel.set_unavailable(hint)
         if tab.search_hits:
             self.search_panel.set_results(
                 tab.search_hits, tab.search_index,
@@ -272,6 +275,7 @@ class TabOpsMixin:
         act = getattr(self, "act_md_source", None)
         if act is not None:
             act.setChecked(tab.canvas.view_mode() == "source")
+            act.setText(f"查看 {label} 源码")
     def _remember_view(self, tab: Optional[DocumentTab]) -> None:
         """切走前把「现在看到哪儿」记到标签上（PDF 记滚动比例，笔记记页码）。
 
@@ -280,7 +284,7 @@ class TabOpsMixin:
         """
         if tab is None or tab.canvas is None:
             return
-        if tab.is_md:
+        if tab.is_text:
             try:
                 tab.view_page = 0
                 tab.view_frac = float(tab.canvas.scroll_offset_frac())
@@ -301,7 +305,7 @@ class TabOpsMixin:
         """切回来时把视图校对回记忆里的位置（没被动过就什么都不做）。"""
         if tab is None or tab.canvas is None:
             return
-        if tab.is_md:
+        if tab.is_text:
             if tab.view_frac > 0.0:
                 tab.canvas.restore_scroll_frac(tab.view_frac)
             return
@@ -373,8 +377,15 @@ class TabOpsMixin:
         idx = self.tab_widget.indexOf(tab.canvas) if tab.canvas is not None else -1
         if idx < 0:
             return
-        icon = self.theme.icon(
-            "tab_md" if tab.is_md else ("tab_pdf" if tab.is_pdf else "tab_note"), 16)
+        if tab.is_md:
+            kind = "tab_md"
+        elif tab.is_html:
+            kind = "tab_html"
+        elif tab.is_pdf:
+            kind = "tab_pdf"
+        else:
+            kind = "tab_note"
+        icon = self.theme.icon(kind, 16)
         if not icon.isNull():
             self.tab_widget.setTabIcon(idx, icon)
     def _refresh_tab_icons(self) -> None:

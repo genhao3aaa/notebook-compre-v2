@@ -21,7 +21,9 @@ from PySide6.QtWidgets import (QApplication, QColorDialog, QComboBox, QFileDialo
 from src.core.annot_document import AnnotDocument
 from src.core import annot_store
 from src.core import serializer
-from src.core.document_tab import DocumentTab, NOTE, PDF, MD, same_path
+from src.core.document_tab import DocumentTab, HTML, MD, NOTE, PDF, same_path
+from src.core.html_document import (HTML_SUFFIXES, is_html, parse_html_headings,
+                                    read_html)
 from src.core.markdown_document import (MD_SUFFIXES, is_markdown,
                                         parse_headings, read_markdown)
 from src.core.hn_log import get_logger, log_debug, log_warning
@@ -32,12 +34,12 @@ from src.render.pdf_engine import PdfEngine, PdfSearchWorker, export_note_to_pdf
 _log = get_logger("ui.file_ops")
 
 _MD_GLOB = " ".join("*" + s for s in MD_SUFFIXES)
+_HTML_GLOB = " ".join("*" + s for s in HTML_SUFFIXES)
 #: 阅读器支持的所有格式集中在这里，新增格式只改这一处
-MD_FILES_FILTER = f"Markdown 文件 ({_MD_GLOB});;所有文件 (*)"
 ALL_FILES_FILTER = (
-    f"支持的文件 (*.note *.pdf {_MD_GLOB});;"
+    f"支持的文件 (*.note *.pdf {_MD_GLOB} {_HTML_GLOB});;"
     f"手写笔记 (*.note);;PDF 文件 (*.pdf);;"
-    f"Markdown 文件 ({_MD_GLOB});;所有文件 (*)")
+    f"Markdown 文件 ({_MD_GLOB});;HTML 文件 ({_HTML_GLOB});;所有文件 (*)")
 
 
 class FileOpsMixin:
@@ -49,33 +51,56 @@ class FileOpsMixin:
     # 阅读器支持格式的统一分发
     # ------------------------------------------------------------------ #
     def open_path(self, path: str, activate: bool = True, quiet: bool = False,
-                  lazy_md: bool = False) -> Optional[DocumentTab]:
+                  lazy_text: bool = False) -> Optional[DocumentTab]:
         """按后缀分发到对应打开入口：新增阅读格式只改这一处 + 一个 open_*。
 
         最近文件、会话恢复、重开标签、命令行参数都走这里，避免后缀判断散落各处。
 
-        quiet   —— 会话恢复用：不弹「批注不匹配」等模态框（弹窗会在窗口出现前
-                   阻塞启动）；恢复结束后由调用方汇总提示。
-        lazy_md —— 会话恢复用：非当前标签的 Markdown 只读入文本、不做耗时排版，
-                   等用户真正切到该标签时再渲染（见 _materialize_md）。
+        quiet     —— 会话恢复用：不弹「批注不匹配」等模态框（弹窗会在窗口出现前
+                     阻塞启动）；恢复结束后由调用方汇总提示。
+        lazy_text —— 会话恢复用：非当前标签的 Markdown / HTML 只读入文本、不做
+                     耗时排版，等用户真正切到该标签时再渲染（见 _materialize_text）。
         """
         p = os.path.abspath(path)
         if p.lower().endswith(".pdf"):
             return self.open_pdf(p, activate=activate, quiet=quiet)
         if is_markdown(p):
             return self.open_markdown(p, activate=activate,
-                                      lazy=lazy_md and not activate)
+                                      lazy=lazy_text and not activate)
+        if is_html(p):
+            return self.open_html(p, activate=activate,
+                                  lazy=lazy_text and not activate)
         return self.open_note(p, activate=activate)
+
+    @staticmethod
+    def _reader_spec(kind: str):
+        """只读文本格式的（名称、读取、标题解析、装载）四件套。"""
+        if kind == HTML:
+            return ("HTML", read_html, parse_html_headings,
+                    lambda view, text, path: view.set_html(text, path))
+        return ("Markdown", read_markdown, parse_headings,
+                lambda view, text, path: view.set_markdown(text, path))
 
     def open_markdown(self, path: str, activate: bool = True,
                       lazy: bool = False) -> Optional[DocumentTab]:
-        """打开 Markdown：只读渲染成标签；已打开过就切过去。
+        """打开 Markdown：只读渲染成标签；已打开过就切过去。"""
+        return self._open_text_document(path, MD, activate=activate, lazy=lazy)
 
-        lazy=True 时只读入文本并标记 md_pending，把耗时的排版（公式 / 表格 /
+    def open_html(self, path: str, activate: bool = True,
+                  lazy: bool = False) -> Optional[DocumentTab]:
+        """打开 HTML：只读渲染成标签；已打开过就切过去。"""
+        return self._open_text_document(path, HTML, activate=activate, lazy=lazy)
+
+    def _open_text_document(self, path: str, kind: str, activate: bool = True,
+                            lazy: bool = False) -> Optional[DocumentTab]:
+        """Markdown / HTML 的共用打开路径（含懒加载分支）。
+
+        lazy=True 时只读入文本并标记 text_pending，把耗时的排版（公式 / 表格 /
         标题大纲）推迟到用户切到该标签时。会话恢复打开非当前标签时用它：
         一篇公式密集的大讲义实测排版约 10s，放在启动阶段就是「点了很久没反应」。
         """
         path = os.path.abspath(path)
+        label, read_fn, parse_fn, setter = self._reader_spec(kind)
         existing = self._find_tab_by_path(path)
         if existing is not None:
             if activate:
@@ -86,27 +111,27 @@ class FileOpsMixin:
             QMessageBox.critical(self, "打开失败", f"找不到文件：\n{path}")
             return None
         try:
-            text = read_markdown(path)
+            text = read_fn(path)
         except Exception as e:
-            QMessageBox.critical(self, "打开失败", f"无法读取 Markdown 文件：\n{e}")
+            QMessageBox.critical(self, "打开失败", f"无法读取 {label} 文件：\n{e}")
             return None
 
-        view = self._make_markdown_view()
+        view = self._make_reader_view()
         view.set_reading_bg(self.settings.md_bg_color())
         view.set_reading_width(self.settings.md_column_width())
         view.reading_width_changed.connect(
             lambda w, v=view: self._on_md_width_dragged(v, w))
         view.reading_width_max_changed.connect(
             lambda m, v=view: self._on_md_width_max_changed(v, m))
-        tab = DocumentTab(MD, view, os.path.basename(path))
+        tab = DocumentTab(kind, view, os.path.basename(path))
         tab.path = path
-        tab.md_text = text
+        tab.text_source = text
         if lazy and not activate:
-            # 只读文本、不排版：等用户切到该标签时由 _materialize_md() 真正渲染
-            tab.md_pending = True
+            # 只读文本、不排版：等用户切到该标签时由 _materialize_text() 真正渲染
+            tab.text_pending = True
         else:
-            tab.md_headings = parse_headings(text)
-            view.set_markdown(text, path)      # 先装载，_add_tab 同步界面时才有内容
+            tab.text_headings = parse_fn(text)
+            setter(view, text, path)      # 先装载，_add_tab 同步界面时才有内容
         self._add_tab(tab, activate=activate)
         self._refresh_tab_title(tab)
         frac = self.settings.md_read_state(path)
@@ -119,38 +144,39 @@ class FileOpsMixin:
             self._update_window_title()
             self._status(
                 f"已打开：{os.path.basename(path)}"
-                f"（Markdown，{len(tab.md_headings)} 个标题）", 4000)
+                f"（{label}，{len(tab.text_headings)} 个标题）", 4000)
         return tab
 
-    def _materialize_md(self, tab: Optional[DocumentTab]) -> None:
-        """把懒加载的 Markdown 标签真正排版出来（切换 / 激活时调用）。
+    def _materialize_text(self, tab: Optional[DocumentTab]) -> None:
+        """把懒加载的只读文本标签真正排版出来（切换 / 激活时调用）。
 
         会话恢复时如果立刻排版大 Markdown（公式 / 表格密集），实测单篇约 10s，
         窗口会像卡死一样；现在先只读文本，等用户点开再排版，并给一个等待光标。
         """
-        if tab is None or not getattr(tab, "md_pending", False) or not tab.is_md:
+        if tab is None or not getattr(tab, "text_pending", False) or not tab.is_text:
             return
-        tab.md_pending = False
+        tab.text_pending = False
         path = tab.path or ""
+        label, read_fn, parse_fn, setter = self._reader_spec(tab.kind)
         try:
-            text = tab.md_text or read_markdown(path)
+            text = tab.text_source or read_fn(path)
         except Exception as e:                          # noqa: BLE001 - 打不开就不排版
-            tab.md_text = ""
-            log_warning("markdown_materialize_failed", path=path, error=repr(e))
+            tab.text_source = ""
+            log_warning("text_materialize_failed", path=path, error=repr(e))
             return
-        tab.md_text = text
-        tab.md_headings = parse_headings(text)
+        tab.text_source = text
+        tab.text_headings = parse_fn(text)
         canvas = tab.canvas
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            self._status(f"正在排版：{tab.display_name()}…", 0)
+            self._status(f"正在排版 {label}：{tab.display_name()}…", 0)
             QApplication.processEvents()                # 先让状态栏 / 等待光标画出来
-            canvas.set_markdown(text, path)
+            setter(canvas, text, path)
         finally:
             QApplication.restoreOverrideCursor()
         self._refresh_tab_title(tab)
         if tab is self._active:
-            self._sync_md_ui(tab)
+            self._sync_reader_ui(tab)
 
     def open_note(self, path: str, activate: bool = True) -> Optional[DocumentTab]:
         """打开笔记：已打开过就切过去，否则在新标签里打开。"""
@@ -384,11 +410,6 @@ class FileOpsMixin:
                                               "PDF 文件 (*.pdf)")
         if path:
             self.open_pdf(path)
-    def _open_markdown_dialog(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "打开 Markdown", self.settings.last_dir(), MD_FILES_FILTER)
-        if path:
-            self.open_markdown(path)
     def _open_any_dialog(self) -> None:
         """统一的「打开文件…」：一个对话框覆盖阅读器支持的所有格式。"""
         path, _ = QFileDialog.getOpenFileName(
@@ -480,8 +501,8 @@ class FileOpsMixin:
         tab = self._active
         if tab is None:
             return
-        if tab.is_md:
-            self._status("Markdown 为只读文档，无需保存", 3000)
+        if tab.is_text:
+            self._status(f"{tab.text_label()} 为只读文档，无需保存", 3000)
             return
         try:
             if tab.is_note:
@@ -523,8 +544,8 @@ class FileOpsMixin:
         tab = self._active
         if tab is None:
             return
-        if tab.is_md:
-            self._status("Markdown 为只读文档，不能另存为", 3000)
+        if tab.is_text:
+            self._status(f"{tab.text_label()} 为只读文档，不能另存为", 3000)
             return
         if not tab.is_note:
             self._status("PDF 批注默认保存到 PDF 同名的 .annot 文件（Ctrl+S）", 4000)
@@ -550,8 +571,8 @@ class FileOpsMixin:
         tab = self._active
         if tab is None:
             return
-        if tab.is_md:
-            self._status("Markdown 文档暂不支持导出 PDF（可复制文本）", 4000)
+        if tab.is_text:
+            self._status(f"{tab.text_label()} 文档暂不支持导出 PDF（可复制文本）", 4000)
             return
         if tab.is_note:
             if tab.note_doc is None:
@@ -587,15 +608,15 @@ class FileOpsMixin:
         tab = self._active
         if tab is None:
             return
-        if tab.is_md:
-            text = tab.md_text
+        if tab.is_text:
+            text = tab.text_source
             QMessageBox.information(
                 self, "文档信息",
                 f"文件：{os.path.basename(tab.path or '')}\n"
-                f"类型：Markdown 文档（只读）\n"
+                f"类型：{tab.text_label()} 文档（只读）\n"
                 f"字符数：{len(text)}\n"
                 f"行数：{len(text.splitlines())}\n"
-                f"标题：{len(tab.md_headings)}")
+                f"标题：{len(tab.text_headings)}")
             return
         if not tab.is_pdf or tab.pdf_engine is None:
             doc = tab.note_doc
@@ -627,14 +648,14 @@ class FileOpsMixin:
         tab = self._active
         if tab is None:
             return
-        if tab.is_md:
+        if tab.is_text:
             view = tab.canvas
             text = ""
             if view is not None and hasattr(view, "textCursor"):
                 text = view.textCursor().selectedText() or ""
-            text = text or tab.md_text
+            text = text or tab.text_source
             QApplication.clipboard().setText(text)
-            self._status(f"已复制 Markdown 文本（{len(text)} 字）", 3500)
+            self._status(f"已复制 {tab.text_label()} 文本（{len(text)} 字）", 3500)
             return
         if not tab.is_pdf or tab.pdf_engine is None:
             self._status("复制页面文本需要打开 PDF", 3000)
@@ -655,11 +676,13 @@ class FileOpsMixin:
             return "pdf"
         if is_markdown(path):
             return "md"
+        if is_html(path):
+            return "html"
         return "note"
 
     def _recent_icon(self, path: str) -> QIcon:
-        name = {"pdf": "tab_pdf", "md": "tab_md", "note": "tab_note"}[
-            self._recent_kind(path)]
+        name = {"pdf": "tab_pdf", "md": "tab_md", "html": "tab_html",
+                "note": "tab_note"}[self._recent_kind(path)]
         return self.theme.icon(name, 16)
 
     def _add_recent(self, path: str) -> None:
@@ -753,8 +776,8 @@ class FileOpsMixin:
         item = QListWidgetItem(name)
         item.setData(Qt.UserRole, path)
         item.setIcon(self._recent_icon(path))
-        label = {"note": "手写笔记", "pdf": "PDF", "md": "Markdown"}[
-            self._recent_kind(path)]
+        label = {"note": "手写笔记", "pdf": "PDF", "md": "Markdown",
+                 "html": "HTML"}[self._recent_kind(path)]
         tip = f"{label}\n{path}"
         ts = entry.get("ts") or 0
         if ts:

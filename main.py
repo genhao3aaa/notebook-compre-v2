@@ -36,6 +36,7 @@ _APP_DATA_DIR_NAME = "HandwritingNotebook"
 
 def _open_paths(window, paths) -> None:
     """把命令行里给的文件路径开成标签（不是本程序格式就忽略）。"""
+    from src.core.html_document import is_html
     from src.core.markdown_document import is_markdown
 
     for raw in paths:
@@ -44,7 +45,7 @@ def _open_paths(window, paths) -> None:
             continue
         try:
             ext = os.path.splitext(path)[1].lower()
-            if ext in (".pdf", ".note") or is_markdown(path):
+            if ext in (".pdf", ".note") or is_markdown(path) or is_html(path):
                 window.open_path(path)
         except Exception:                    # 单个文件打不开不该拦住启动
             continue
