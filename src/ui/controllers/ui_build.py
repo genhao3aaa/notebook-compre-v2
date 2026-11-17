@@ -241,8 +241,6 @@ class UiBuildMixin:
         bar.add_core(self._mk_btn("menu", "折叠/展开侧边栏", slot=self._toggle_sidebar))
         bar.add_core(self._mk_btn("new", "新建标签 (Ctrl+N / Ctrl+T)",
                                   slot=lambda: self.new_tab_note()))
-        bar.add_core(self._mk_btn("tab_note", "打开笔记…", slot=self._open_note_dialog))
-        bar.add_core(self._mk_btn("tab_pdf", "打开 PDF…", slot=self._open_pdf_dialog))
         self.btn_save_tb = self._mk_btn("save", "保存 (Ctrl+S)", slot=self.save)
         bar.add_core(self.btn_save_tb)
         bar.separator()

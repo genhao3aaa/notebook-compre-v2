@@ -20,8 +20,8 @@
 - **路线图**：把「Markdown 打开仍有明显卡顿」写入 `ROADMAP.md` §6/§7，附实测基线、
   根因假设、分阶段方案与验收标准（本轮不修，优先交付 HTML）。
 - **菜单精简**：把「打开笔记 / 打开 PDF / 打开 Markdown / 打开 HTML」四个同类项合并为
-  单个「打开文件…」(`Ctrl+O`)，格式差异交给对话框里的类型筛选器；工具栏仍保留
-  「打开笔记」「打开 PDF」两个快捷按钮。
+  单个「打开文件…」(`Ctrl+O`)，格式差异交给对话框里的类型筛选器；工具栏不再
+  重复摆放「打开笔记 / 打开 PDF」按钮。
 - **内部命名**：标签的 `md_text / md_headings / md_pending` 改为
   `text_source / text_headings / text_pending`（Markdown / HTML 共用），
   阅读视图新增 `set_html()` / `document_kind()`。

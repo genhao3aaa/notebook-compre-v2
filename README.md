@@ -305,7 +305,6 @@ python main.py "D:\书\book.pdf" "D:\笔记\笔记.note"   # 多个文件开成�
 | 连续 / 单页阅读 | 工具栏的阅读模式按钮，或 `Ctrl+Shift+L` |
 | 新建笔记 | `Ctrl+N`，可先选背景 |
 | 打开文件（笔记 / PDF / Markdown / HTML） | `Ctrl+O` 或菜单「文件 → 打开文件…」，格式可在对话框里按类型筛选 |
-| 只打开笔记 / PDF | 工具栏的「打开笔记」「打开 PDF」快捷按钮 |
 | Markdown / HTML 源码 / 渲染切换 | 菜单「视图 → 查看 Markdown / HTML 源码」 |
 | 整理最近文件 | 侧栏筛选框、右键菜单，或「清理失效 / 清空全部」按钮 |
 | 保存 | `Ctrl+S`（笔记存为 `.note`，PDF 批注存为同名 `.annot`；Markdown / HTML 只读，无需保存） |

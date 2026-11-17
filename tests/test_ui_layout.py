@@ -254,3 +254,6 @@ def test_file_menu_merges_all_open_entries(win):
 
     for token in ("*.note", "*.pdf", "*.md", "*.html"):
         assert token in ALL_FILES_FILTER
+    # 顶栏不再重复摆「打开笔记 / 打开 PDF」按钮：菜单 / Ctrl+O 已是唯一入口
+    tips = [b.toolTip() for b, _kind in win._icon_buttons]
+    assert not [t for t in tips if "打开" in t], f"顶栏仍有打开按钮：{tips}"

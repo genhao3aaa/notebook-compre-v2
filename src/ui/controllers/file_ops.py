@@ -400,16 +400,6 @@ class FileOpsMixin:
         if 0 <= index < len(tab.annot_doc.pages):
             return tab.annot_doc.pages[index].strokes
         return []
-    def _open_note_dialog(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "打开笔记", self.settings.last_dir(),
-                                              "笔记文件 (*.note)")
-        if path:
-            self.open_note(path)
-    def _open_pdf_dialog(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "打开 PDF", self.settings.last_dir(),
-                                              "PDF 文件 (*.pdf)")
-        if path:
-            self.open_pdf(path)
     def _open_any_dialog(self) -> None:
         """统一的「打开文件…」：一个对话框覆盖阅读器支持的所有格式。"""
         path, _ = QFileDialog.getOpenFileName(
