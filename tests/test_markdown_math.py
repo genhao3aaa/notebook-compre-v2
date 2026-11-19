@@ -97,8 +97,9 @@ def test_parse_math_structures():
 
 def test_parse_math_greek_and_unknown():
     assert parse_math("\\alpha").items[0] == Sym("α", "math", "ord")
-    # 未知命令不抛异常，按正体文字显示
-    assert parse_math("\\notacommand").items[0].text == "notacommand"
+    # 未知命令不抛异常，但必须保留反斜杠：不能把命令名伪装成正文单词
+    # （旧行为把 \tag 显示成 "tag"，与编号拼成 "tag1.9"）
+    assert parse_math("\\notacommand").items[0].text == "\\notacommand"
 
 
 def test_function_names_are_atoms():

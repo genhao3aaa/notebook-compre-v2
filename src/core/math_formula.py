@@ -79,6 +79,28 @@ class Boxed:
 
 
 @dataclass(frozen=True)
+class Tag:
+    r"""``\tag{1.9}`` / ``\tag*{1.9}`` 的公式编号。
+
+    讲义里用 ``\tag{1.9}`` 沿用原书编号，正文会引用「由 (1.8)(1.9) 得…」，
+    所以编号不能丢。amsmath 里编号右对齐到页边；这里公式是 QTextDocument
+    的单个内联对象，渲染层在行间公式且宽度够用时把主体居中、编号贴右边缘，
+    宽度不够就顺序排在公式末尾。
+
+    关键是：``\tag`` 是命令，绝不是正文。旧实现把它当未知命令渲染成字面
+    ``tag``，再拼上参数就成了 ``tag1.9`` 混进公式（见 tests/test_math_tag.py）。
+    """
+
+    text: str
+    star: bool = False      # \tag* 不加括号
+
+    @property
+    def label(self) -> str:
+        r"""实际显示的编号文字（``\tag*`` 不加括号）。"""
+        return self.text if self.star else "(" + self.text + ")"
+
+
+@dataclass(frozen=True)
 class Delim:
     left: str
     right: str
@@ -195,6 +217,25 @@ _SPACES: Dict[str, float] = {
     "thinspace": 0.167, "medspace": 0.222, "thickspace": 0.278,
 }
 
+#: LaTeX 2.09 的「声明式」字体命令：不产生字形，只切换从此处到当前分组结束的字体。
+#: 教材里大量用 $C^{\rm mol}$ / $K_{\rm c}$ 把单位、下标写成正体；旧实现不认识
+#: \rm，把命令名当正文渲染成 "rmmol" / "rmc"（见 tests/test_math_tag.py）。
+_DECL_STYLES: Dict[str, str] = {
+    "rm": "up", "bf": "bf", "it": "it", "sf": "up", "tt": "up",
+    "cal": "it", "mit": "it", "frak": "it", "normalfont": "math",
+    "rmfamily": "up", "sffamily": "up", "ttfamily": "up",
+    "bfseries": "bf", "itshape": "it", "upshape": "up",
+}
+
+#: 不产生可见内容的排版 / 交叉引用命令：直接吞掉，绝不把命令名当正文显示。
+_INVISIBLE_CMDS = frozenset({
+    "limits", "nolimits", "scriptstyle", "scriptscriptstyle",
+    "nonumber", "notag", "hfill", "vfill", "protect", "relax",
+    "medskip", "smallskip", "bigskip", "tiny", "scriptsize",
+    "footnotesize", "small", "normalsize", "large", "Large", "LARGE",
+    "huge", "Huge",
+})
+
 _DELIMS: Dict[str, str] = {
     "(": "(", ")": ")", "[": "[", "]": "]",
     "{": "{", "}": "}", "|": "|", ".": "",
@@ -300,6 +341,8 @@ def _restyle(node: object, style: str) -> object:
         return Accent(node.kind, _restyle(node.body, style))
     if isinstance(node, Boxed):
         return Boxed(_restyle(node.body, style))
+    if isinstance(node, Tag):
+        return node                    # 编号是正体文字，不随 \rm 等声明改变
     if isinstance(node, Delim):
         return Delim(node.left, node.right, _restyle(node.body, style))
     if isinstance(node, Matrix):
@@ -313,6 +356,15 @@ class _Parser:
         self.toks = _tokenize(src)
         self.i = 0
         self.depth = 0
+        #: ``\rm`` / ``\bf`` 等声明式字体命令的当前作用域样式。
+        #: 进入花括号分组时保存、退出时恢复（LaTeX 的声明作用域到分组结束）。
+        self._style = "math"
+
+    def _styled(self, node: object) -> object:
+        """普通字符套用当前声明式字体；其余节点保持自己的语义。"""
+        if self._style == "math" or node is None:
+            return node
+        return _restyle(node, self._style)
 
     def _peek(self) -> Optional[Tuple[str, str]]:
         return self.toks[self.i] if self.i < len(self.toks) else None
@@ -342,6 +394,7 @@ class _Parser:
         return self._parse_list(())
 
     def _parse_list(self, stops: Sequence[str]) -> Seq:
+        outer_style = self._style
         self.depth += 1
         if self.depth > 64:
             raise _ParseError("嵌套过深")
@@ -356,9 +409,10 @@ class _Parser:
                     continue
                 node = self._parse_scripts(node)
                 if node is not None:
-                    out.append(node)
+                    out.append(self._styled(node))
         finally:
             self.depth -= 1
+            self._style = outer_style
         return Seq(tuple(out))
 
     def _parse_scripts(self, base: object) -> object:
@@ -424,6 +478,9 @@ class _Parser:
                 if not parts or parts[-1] != " ":
                     parts.append(" ")
             elif kind == "cmd":
+                # 声明式字体 / 纯排版命令在 \text{...} 里同样不能变成文字
+                if val in _DECL_STYLES or val in _INVISIBLE_CMDS:
+                    continue
                 parts.append(" " if val == "\\" else val)
             else:
                 parts.append(val)
@@ -465,6 +522,28 @@ class _Parser:
             return _make_char(val)
 
         name = val
+        # 公式编号 \tag{1.9} / \tag*{1.9}：正文常引用「由 (1.8)(1.9) 得…」，
+        # 编号必须保留，但命令名绝不能变成正文。\tag* 是不加括号的形式。
+        if name == "tag":
+            star = self._peek() == ("char", "*")
+            if star:
+                self._next()
+            while (tok := self._peek()) is not None and tok[0] == "ws":
+                self._next()
+            return Tag(self._raw_group(), star)
+        # \label{...}：交叉引用锚点，本身与参数都不产生可见内容
+        if name == "label":
+            while (tok := self._peek()) is not None and tok[0] == "ws":
+                self._next()
+            self._raw_group()
+            return None
+        # \rm / \bf 等声明式字体：切换作用域样式，命令本身不产生字形
+        if name in _DECL_STYLES:
+            self._style = _DECL_STYLES[name]
+            return None
+        # 纯排版控制命令（\limits / \displaystyle / \nonumber …）：不产生可见内容
+        if name in _INVISIBLE_CMDS:
+            return None
         if name in ("frac", "dfrac", "tfrac", "cfrac"):
             return Frac(self._parse_arg(), self._parse_arg())
         if name in ("binom", "dbinom", "tbinom"):
@@ -543,7 +622,10 @@ class _Parser:
             return LineBreak()
         if len(name) == 1:
             return _make_char(name)
-        return Sym(name, "up")
+        # 兜底：未收录的命令不能再把命令名当正文吐出来（这正是 \tag → "tag1.9"
+        # 的根因）。保留反斜杠原样显示，用户一眼能看出「这是未支持的 LaTeX
+        # 命令」，而不是公式里凭空多出一段英文单词；同时不吞掉信息。
+        return Sym("\\" + name, "up")
 
     def _parse_env(self) -> object:
         env = self._raw_group()
@@ -665,6 +747,9 @@ def _plain_node(node: object) -> str:
         return " " if node.em > 0 else ""
     if isinstance(node, LineBreak):
         return " "
+    if isinstance(node, Tag):
+        # 目录 / 搜索 / 无障碍文本里保留编号，但不出现命令名
+        return " " + node.label
     if isinstance(node, Func):
         return node.text
     if isinstance(node, BigOp):

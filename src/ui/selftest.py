@@ -1,4 +1,4 @@
-"""打包后自检（A5）：把「启动 → 打开 PDF → 手写 → 导出 → 保存」整条链跑一遍。
+"""打包后自检（A5）：把「启动 → 打开 PDF → 手写 → 导出 → 保存 → 公式」整条链跑一遍。
 
 为什么需要它：PyInstaller 的裁剪最容易伤到平台插件、Qt 模块依赖、PyMuPDF/PIL 的
 原生扩展——「exe 能启动」不等于「功能还在」。这个自检在**打包产物内部**运行，
@@ -84,7 +84,7 @@ def run_selftest(workdir: Optional[str] = None) -> int:
         QApplication.instance() or QApplication([])
 
         # ---------------- 1. PyMuPDF：造一份 PDF ----------------
-        say("[selftest] 1/5 创建 PDF（PyMuPDF）")
+        say("[selftest] 1/6 创建 PDF（PyMuPDF）")
         import pymupdf as fitz
 
         pdf = os.path.join(work, "selftest.pdf")
@@ -97,7 +97,7 @@ def run_selftest(workdir: Optional[str] = None) -> int:
         doc.close()
 
         # ---------------- 2. 打开 PDF + 目录 + 渲染 ----------------
-        say("[selftest] 2/5 打开 PDF / 目录 / 页面渲染")
+        say("[selftest] 2/6 打开 PDF / 目录 / 页面渲染")
         from src.core.settings import AppSettings
         from src.ui.main_window import MainWindow
 
@@ -110,7 +110,7 @@ def run_selftest(workdir: Optional[str] = None) -> int:
         assert not win.canvas.page_pixmap.isNull(), "页面没有渲染出来"
 
         # ---------------- 3. 手写一笔（压感渲染 + 脏矩形重绘） ----------------
-        say("[selftest] 3/5 手写一笔（压感渲染 + 脏矩形重绘）")
+        say("[selftest] 3/6 手写一笔（压感渲染 + 脏矩形重绘）")
         from src.core.stroke import AddStrokeCmd, Stroke, TOOL_PEN
 
         canvas = win.canvas
@@ -133,7 +133,7 @@ def run_selftest(workdir: Optional[str] = None) -> int:
         # 功能检查仍然会全过——只有显式探测才能发现「Rust 核心没进包」。
         # 默认 auto：打印实际选中的后端即可；显式 `HN_RENDER_BACKEND=rust` 时要求
         # 必须真是 Rust（发布脚本用它验证打包产物）。
-        say("[selftest] 3.5/5 渲染后端探测（Rust 核心是否随包）")
+        say("[selftest] 3.5/6 渲染后端探测（Rust 核心是否随包）")
         from src.render import backend as render_backend
 
         selected = render_backend.get_backend()
@@ -146,7 +146,7 @@ def run_selftest(workdir: Optional[str] = None) -> int:
                 "HN_RENDER_BACKEND=rust 但 Rust 后端不可用：打包漏了 hn_core 扩展？")
 
         # ---------------- 4. 保存 .annot（v2 二进制）+ 导出 PDF ----------------
-        say("[selftest] 4/5 保存批注（v2，含 MD5）+ 导出带批注 PDF")
+        say("[selftest] 4/6 保存批注（v2，含 MD5）+ 导出带批注 PDF")
         win.save()
         assert win._saver.wait_for_idle(8000), "批注保存没有完成"
         annot = os.path.splitext(pdf)[0] + ".annot"
@@ -163,7 +163,7 @@ def run_selftest(workdir: Optional[str] = None) -> int:
         assert total == 1, f"批注读回不完整：{total}"
 
         # ---------------- 5. 新建笔记 + 保存 .note + 读回 ----------------
-        say("[selftest] 5/5 新建笔记 / 保存 .note / 读回")
+        say("[selftest] 5/6 新建笔记 / 保存 .note / 读回")
         win.new_note()
         _spin(150)
         note_stroke = Stroke(tool=TOOL_PEN, color="#000000", width=3.0,
@@ -183,6 +183,19 @@ def run_selftest(workdir: Optional[str] = None) -> int:
 
         back_note = NoteDocument.load(note_path)
         assert len(back_note.pages[0].strokes) == 1, "笔记读回不完整"
+
+        # ---------------- 6. 公式解析器回归（打包后同样要过） ----------------
+        # 曾把 \tag{1.9} 渲染成公式末尾的 "tag1.9"、^{\rm mol} 渲染成 "rmmol"。
+        # 打包漏收 math_formula / math_render 的改动时，这条会直接把成品判失败。
+        say("[selftest] 6/6 公式编号与声明式字体")
+        from src.core.math_formula import math_to_plain
+
+        plain_tag = math_to_plain(r"E=mc^2 \tag{1.9}")
+        assert "(1.9)" in plain_tag and "tag" not in plain_tag, plain_tag
+        assert math_to_plain(r"C^{\rm mol}") == "C^(mol)", \
+            "声明式字体 \\rm 又被当成正文了"
+        assert math_to_plain(r"\notacommand") == "\\notacommand", \
+            "未知命令又伪装成正文单词了"
 
         say("SELFTEST OK")
         _finish(0)

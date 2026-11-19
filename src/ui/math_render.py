@@ -15,7 +15,7 @@ from PySide6.QtGui import (QColor, QFont, QFontMetricsF, QPainter, QPainterPath,
 
 from src.core.math_formula import (ENV_DELIMS, Accent, BigOp, Boxed, Delim,
                                    Frac, Func, LineBreak, Matrix, Script, Seq,
-                                   Space, Sqrt, Sym, parse_math)
+                                   Space, Sqrt, Sym, Tag, parse_math)
 
 #: 自定义内联对象类型 / 属性键（只在本模块与 MarkdownView 之间约定）
 MATH_OBJECT_TYPE = QTextFormat.ObjectTypes.UserObject + 41
@@ -509,6 +509,9 @@ def _layout(node: object, ctx: _Ctx, size: float) -> _Box:
         return _layout_items(node.items, ctx, size)
     if isinstance(node, Sym):
         return _layout_sym(node, ctx, size)
+    if isinstance(node, Tag):
+        # 编号用正体，前面留一点空白；行间公式的靠右定位在 math_box 里处理
+        return _Glyph(node.label, ctx.font("up", size))
     if isinstance(node, Space):
         return _Box(max(0.0, node.em) * ctx.em)
     if isinstance(node, Func):
@@ -598,6 +601,9 @@ def math_box(source: str, font: QFont, display: bool = False,
 
     display=True 走行间公式的字号规则（分式不缩小、大运算符放大）；
     max_width > 0 时，超宽公式整体等比缩到该宽度内。
+
+    顶层 ``\\tag{1.9}`` 单独处理：主体居中、编号靠右（amsmath 的行为），
+    这样讲义里沿用原书的公式编号能读，又不会把命令名混进公式。
     """
     ps, pixel_mode = _font_size(font)
     limit = int(round(max_width)) if max_width > 0 else 0
@@ -607,11 +613,29 @@ def math_box(source: str, font: QFont, display: bool = False,
     box = _BOX_CACHE.get(key)
     if box is None:
         ctx = _Ctx(font, ps, display, pixel_mode)
-        box = _layout(parse_math(source), ctx, ps)
-        if not display:
-            box = _Pad(box, 0.08 * ctx.em)
-        if max_width > 0 and box.w > max_width:
-            box = _Scaled(box, max_width / box.w)
+        tree = parse_math(source)
+        tags = [n for n in tree.items if isinstance(n, Tag)] if display else []
+        if tags:
+            body = _layout(Seq(tuple(n for n in tree.items
+                                     if not isinstance(n, Tag))), ctx, ps)
+            label = " ".join(t.label for t in tags)
+            num = _Glyph(label, ctx.font("up", ps))
+            gap = 1.2 * ctx.em
+            if max_width > body.w + gap + num.w:
+                # 行间编号：主体在可用宽度里居中，编号贴右边缘
+                box = _HBox(((body, (max_width - body.w) / 2),
+                             (num, max_width - num.w)))
+            else:
+                # 宽度不够（或目录树等非文档控件）就顺序排，主体该缩放还得缩放
+                box = _HBox(((body, 0.0), (num, body.w + gap)))
+                if max_width > 0 and box.w > max_width:
+                    box = _Scaled(box, max_width / box.w)
+        else:
+            box = _layout(tree, ctx, ps)
+            if not display:
+                box = _Pad(box, 0.08 * ctx.em)
+            if max_width > 0 and box.w > max_width:
+                box = _Scaled(box, max_width / box.w)
         if len(_BOX_CACHE) > 768:
             _BOX_CACHE.clear()
         _BOX_CACHE[key] = box
