@@ -175,7 +175,8 @@ def test_math_box_renders_tag_without_error(qapp):
     for display in (False, True):
         box = math_box(r"E=mc^2 \tag{1.9}", font, display=display,
                        max_width=600.0)
-        assert box.w > 0 and box.w <= 600.0
+        # 缩放是浮点乘法，不同机器的字体度量会让结果溢出 max_width 约 1e-14
+        assert box.w > 0 and box.w <= 600.0 + 1e-6
 
 
 def test_math_box_tag_right_aligned_when_room(qapp):
@@ -191,7 +192,7 @@ def test_math_box_tag_degrades_when_narrow(qapp):
     font = QFont("Times New Roman", 14)
     box = math_box(r"\frac{a}{b}+\frac{c}{d}+\frac{e}{f} \tag{1.9}", font,
                    display=True, max_width=60.0)
-    assert box.w <= 60.0
+    assert box.w <= 60.0 + 1e-6
 
 
 def test_math_box_all_lecture_formulas(qapp):
