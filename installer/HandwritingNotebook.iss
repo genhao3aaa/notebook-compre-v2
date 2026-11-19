@@ -2,8 +2,8 @@
 ; ============================================================================
 ; 手写笔记本与PDF批注（Episode2）—— Inno Setup 6 安装包脚本
 ; ----------------------------------------------------------------------------
-; 产物：..\dist_release\HandwritingNotebook-5.3.1-Setup.exe
-; 版本：AppVersion=5.3.1（单一变量 MyAppVersion；build_release.ps1 会与
+; 产物：..\dist_release\HandwritingNotebook-5.4.0-Setup.exe
+; 版本：AppVersion=5.4.0（单一变量 MyAppVersion；build_release.ps1 会与
 ;       assets/version_info.txt 做一致性检查，并用 /DMyAppVersion=<版本> 传入）
 ;
 ; 安装位置：优先 D:\Apps\HandwritingNotebook（用户要求尽量不占 C 盘）；
@@ -12,7 +12,7 @@
 ; 快捷方式：桌面「手写笔记本与PDF批注.lnk」+ 开始菜单「手写笔记本与PDF批注」文件夹
 ; 卸载：     %LOCALAPPDATA%\Programs\HandwritingNotebook\unins000.exe
 ;           静默：unins000.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-; 静默安装： HandwritingNotebook-5.3.1-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+; 静默安装： HandwritingNotebook-5.4.0-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
 ;
 ; 中文向导：installer/ChineseSimplified.isl（Inno Setup 6.1.0+ 简体中文，
 ;           取自 jrsoftware/issrc 的 is-6_2_2 标签，与 6.2.2 编译器配套）。
@@ -21,7 +21,7 @@
 
 #define MyAppName "手写笔记本与PDF批注"
 #ifndef MyAppVersion
-  #define MyAppVersion "5.3.1"
+  #define MyAppVersion "5.4.0"
 #endif
 #define MyAppVersion4 MyAppVersion + ".0"
 #define MyAppPublisher "Handwriting Notebook Project"
